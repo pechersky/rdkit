@@ -1,0 +1,81 @@
+# FROM alpine as rdkit-build
+# RUN apk add --no-cache sudo cmake gcc g++ make git \
+#     boost-dev freetype-dev postgresql-common postgresql postgresql-dev
+
+# https://github.com/sameersbn/docker-postgresql/blob/f5b7752b9336b89a651541cf9872e6fe5cff4e4e/Dockerfile#L1
+FROM ubuntu:jammy-20230605 AS add-apt-repositories
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y wget gnupg \
+ && wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - \
+ && echo 'deb http://apt.postgresql.org/pub/repos/apt/ jammy-pgdg main' >> /etc/apt/sources.list
+
+FROM ubuntu:jammy-20230605 AS rdkit-build
+USER root
+ENV PG_APP_HOME="/etc/docker-postgresql" \
+    PG_VERSION=16 \
+    PG_USER=postgres \
+    PG_HOME=/var/lib/postgresql \
+    PG_RUNDIR=/run/postgresql \
+    PG_LOGDIR=/var/log/postgresql \
+    PG_CERTDIR=/etc/postgresql/certs
+
+ENV PG_BINDIR=/usr/lib/postgresql/${PG_VERSION}/bin \
+    PG_DATADIR=${PG_HOME}/${PG_VERSION}/main
+
+COPY --from=add-apt-repositories /etc/apt/trusted.gpg /etc/apt/trusted.gpg
+COPY --from=add-apt-repositories /etc/apt/sources.list /etc/apt/sources.list
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y acl sudo locales \
+      postgresql-${PG_VERSION} postgresql-client-${PG_VERSION} postgresql-contrib-${PG_VERSION} postgresql-server-dev-${PG_VERSION} libpq-dev \
+ && update-locale LANG=C.UTF-8 LC_MESSAGES=POSIX \
+ && locale-gen en_US.UTF-8 \
+ && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure locales \
+ && ln -sf ${PG_DATADIR}/postgresql.conf /etc/postgresql/${PG_VERSION}/main/postgresql.conf \
+ && ln -sf ${PG_DATADIR}/pg_hba.conf /etc/postgresql/${PG_VERSION}/main/pg_hba.conf \
+ && ln -sf ${PG_DATADIR}/pg_ident.conf /etc/postgresql/${PG_VERSION}/main/pg_ident.conf \
+ && rm -rf ${PG_HOME} \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y sudo cmake gcc g++ make git \
+   libboost-all-dev libfreetype-dev
+RUN git clone --depth=1 --single-branch --branch Release_2023_09_4 https://github.com/rdkit/rdkit
+WORKDIR /rdkit
+RUN rm -rf build && mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRDK_INSTALL_INTREE=ON \
+    -DRDK_BUILD_CPP_TESTS=OFF \
+    -DRDK_BUILD_PYTHON_WRAPPERS=OFF \
+    -DRDK_BUILD_COORDGEN_SUPPORT=OFF \
+    -DRDK_BUILD_MAEPARSER_SUPPORT=OFF \
+    -DRDK_INSTALL_COMIC_FONTS=OFF \
+    -DRDK_OPTIMIZE_POPCNT=ON \
+    -DRDK_BUILD_TEST_GZIP=ON \
+    -DRDK_BUILD_AVALON_SUPPORT=OFF \
+    -DRDK_BUILD_INCHI_SUPPORT=ON \
+    -DRDK_BUILD_SWIG_WRAPPERS=OFF \
+    -DRDK_BUILD_THREADSAFE_SSS=ON \
+    -DRDK_TEST_MULTITHREADED=ON \
+    -DRDK_BUILD_PGSQL=ON \
+    -DRDK_PGSQL_STATIC=ON \
+    -DPostgreSQL_CONFIG_DIR=/usr/lib/postgresql/16/bin \
+    -DPostgreSQL_INCLUDE_DIR="/usr/include/postgresql" \
+    -DPostgreSQL_TYPE_INCLUDE_DIR="/usr/include/postgresql/16/server" \
+    -DPostgreSQL_LIBRARY="/usr/lib/x86_64-linux-gnu/libpq.so"
+RUN cd build && make -j `nproc` install
+
+FROM postgres:16
+COPY --from=rdkit-build /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/16/extension/rdkit.control
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/rdkit--4.4.0.sql /usr/share/postgresql/16/extension/rdkit--4.4.0.sql
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/update_sql/*.sql /usr/share/postgresql/16/extension/
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/16/lib/rdkit.so
+COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libfreetype.so.6 /usr/include
+COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/include
+COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libpng16.so.16 /usr/include
+COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlidec.so.1 /usr/include
+COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1 /usr/include
+ENV LD_LIBRARY_PATH=/usr/include
+LABEL org.opencontainers.image.source="https://github.com/pechersky/rdkit"
