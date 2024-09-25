@@ -41,7 +41,7 @@ RUN apt-get update \
 RUN apt-get update && \
     apt-get install -y sudo cmake gcc g++ make git \
    libboost-all-dev libfreetype-dev
-RUN git clone --depth=1 --single-branch --branch Release_2023_09_4 https://github.com/rdkit/rdkit
+RUN git clone --depth=1 --single-branch --branch Release_2024_03_1 https://github.com/rdkit/rdkit
 WORKDIR /rdkit
 RUN rm -rf build && mkdir build && cd build && \
     cmake .. \
@@ -79,4 +79,4 @@ COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlidec.so.1 /usr/include
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1 /usr/include
 ENV LD_LIBRARY_PATH=/usr/include
 LABEL org.opencontainers.image.source="https://github.com/pechersky/rdkit"
-LABEL org.opencontainers.image.version="postgres-16.2-2023_09_4"
+LABEL org.opencontainers.image.version="postgres-16.3-2024_03_1"
