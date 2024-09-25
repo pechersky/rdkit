@@ -79,3 +79,4 @@ COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlidec.so.1 /usr/include
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1 /usr/include
 ENV LD_LIBRARY_PATH=/usr/include
 LABEL org.opencontainers.image.source="https://github.com/pechersky/rdkit"
+LABEL org.opencontainers.image.version="postgres-16.2-2023_09_4"
