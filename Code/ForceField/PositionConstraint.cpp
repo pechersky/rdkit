@@ -1,8 +1,5 @@
-// $Id$
 //
-//  Copyright (C) 2013 Paolo Tosco
-//
-//  Copyright (C) 2004-2006 Rational Discovery LLC
+//  Copyright (C) 2013-2024 Paolo Tosco and other RDKit contributors
 //
 //   @@ All Rights Reserved @@
 //  This file is part of the RDKit.
@@ -11,12 +8,12 @@
 //  of the RDKit source tree.
 //
 #include "PositionConstraint.h"
-#include <cmath>
-#include <ForceField/ForceField.h>
+#include "ForceField.h"
 #include <RDGeneral/Invariant.h>
+#include <algorithm>
+#include <cmath>
 
 namespace ForceFields {
-namespace UFF {
 PositionConstraintContrib::PositionConstraintContrib(ForceField *owner,
                                                      unsigned int idx,
                                                      double maxDispl,
@@ -39,7 +36,7 @@ double PositionConstraintContrib::getEnergy(double *pos) const {
   RDGeom::Point3D p(pos[3 * d_atIdx], pos[3 * d_atIdx + 1],
                     pos[3 * d_atIdx + 2]);
   double dist = (p - d_pos0).length();
-  double distTerm = (dist > d_maxDispl) ? dist - d_maxDispl : 0.0;
+  double distTerm = std::max(dist - d_maxDispl, 0.0);
   double res = 0.5 * d_forceConstant * distTerm * distTerm;
 
   return res;
@@ -67,5 +64,4 @@ void PositionConstraintContrib::getGrad(double *pos, double *grad) const {
     grad[3 * d_atIdx + i] += dGrad;
   }
 }
-}  // namespace UFF
 }  // namespace ForceFields

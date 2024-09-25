@@ -11,7 +11,7 @@
 #include <fstream>
 #include <string>
 #include <sstream>
-#include <string_view>
+// #include <string_view>
 #include <streambuf>
 
 #include "RDGeneral/test.h"
@@ -31,6 +31,7 @@
 #include <GraphMol/FileParsers/PNGParser.h>
 #include <GraphMol/FileParsers/MolFileStereochem.h>
 #include <GraphMol/FileParsers/MolWriters.h>
+#include <GraphMol/MonomerInfo.h>
 #include <RDGeneral/FileParseException.h>
 #include <boost/algorithm/string.hpp>
 
@@ -1618,7 +1619,6 @@ H      0.635000    0.635000    0.635000
     mol->addConformer(conf);
 
     const std::string xyzblock = MolToXYZBlock(*mol, 0, 15);
-    std::cout << xyzblock << std::endl;
     std::string xyzblock_expected = R"XYZ(7
 CHEMBL506259
 O      0.402012650000000   -0.132994360000000    1.000000170000000
@@ -2255,6 +2255,37 @@ M  END
     CHECK(molb.find("SUBST=3") != std::string::npos);
     CHECK(molb.find("SUBST=-2") != std::string::npos);
     CHECK(molb.find("SUBST=-1") != std::string::npos);
+  }
+  SECTION("RBCNT") {
+    auto mol = R"CTAB(test
+  Mrv2007 03132018122D
+
+  0  0  0     0  0            999 V3000
+M  V30 BEGIN CTAB
+M  V30 COUNTS 4 3 0 0 0
+M  V30 BEGIN ATOM
+M  V30 1 C -16.6248 7.1666 0 0 RBCNT=3
+M  V30 2 C -15.2911 7.9366 0 0 RBCNT=-2
+M  V30 3 N -13.9574 7.1666 0 0 RBCNT=-1
+M  V30 4 C -17.9585 7.9366 0 0 RBCNT=4
+M  V30 END ATOM
+M  V30 BEGIN BOND
+M  V30 1 1 1 2
+M  V30 2 1 2 3
+M  V30 3 1 1 4
+M  V30 END BOND
+M  V30 END CTAB
+M  END
+)CTAB"_ctab;
+    REQUIRE(mol);
+
+    auto smarts = MolToSmarts(*mol);
+    CHECK(smarts == "[#6&x3](-[#6&x0]-[#7&x0])-[#6&x4]");
+
+    auto molb = MolToV3KMolBlock(*mol);
+    CHECK(molb.find("RBCNT=3") != std::string::npos);
+    CHECK(molb.find("RBCNT=-2") != std::string::npos);
+    CHECK(molb.find("RBCNT=-1") != std::string::npos);
   }
   SECTION("bond props") {
     auto mol = R"CTAB(bogus example
@@ -3015,6 +3046,60 @@ TEST_CASE("test bond flavors when writing PDBs", "[bug]") {
       int flavor = 2 | 8;
       auto pdb = MolToPDBBlock(*m, confId, flavor);
       CHECK(pdb.find("CONECT") == std::string::npos);
+    }
+  }
+}
+
+TEST_CASE("test output with incomplete monomer info", "[bug][writer]") {
+  SECTION("basics") {
+    {
+      auto m = "Cl"_smiles;
+      REQUIRE(m);
+      std::string pdb = MolToPDBBlock(*m, -1);
+      CHECK(pdb.find("HETATM    1 CL1  UNL     1") != std::string::npos);
+    }
+    {
+      auto m = "Cl"_smiles;
+      // will get deleted by ~Atom()
+      AtomPDBResidueInfo *info = new AtomPDBResidueInfo();
+      info->setResidueName("HCL");
+      m->getAtomWithIdx(0)->setMonomerInfo(info);
+      std::string pdb = MolToPDBBlock(*m, -1);
+      CHECK(pdb.find("ATOM      1 CL1  HCL     0") != std::string::npos);
+    }
+    {
+      auto m = "Cl"_smiles;
+      // will get deleted by ~Atom()
+      AtomPDBResidueInfo *info = new AtomPDBResidueInfo();
+      info->setResidueName("HCL");
+      info->setName("Cl1");
+      m->getAtomWithIdx(0)->setMonomerInfo(info);
+      std::string pdb = MolToPDBBlock(*m, -1);
+      CHECK(pdb.find("ATOM      1  Cl1 HCL     0") != std::string::npos);
+    }
+    {
+      // 1. should add spaces for padding if the atom name is too short
+      // 2. should add spaces for missing residue name.
+      auto m = "Cl"_smiles;
+      // will get deleted by ~Atom()
+      AtomPDBResidueInfo *info = new AtomPDBResidueInfo();
+      info->setName("CL");
+      m->getAtomWithIdx(0)->setMonomerInfo(info);
+      std::string pdb = MolToPDBBlock(*m, -1);
+      CHECK(pdb.find("ATOM      1   CL         0") != std::string::npos);
+    }
+    {
+      // 1. Test that atom names get truncated to 4 letters.
+      // 2. Test that residue names get truncated to 3 letters.
+      auto m = "Cl"_smiles;
+      // will get deleted by ~Atom()
+      AtomPDBResidueInfo *info = new AtomPDBResidueInfo();
+      info->setName("CHLORINE_ATOM1");
+      info->setResidueName("CHLORINE_MOLECULE1");
+      m->getAtomWithIdx(0)->setMonomerInfo(info);
+      std::string pdb = MolToPDBBlock(*m, -1);
+      std::cout << pdb << std::endl;
+      CHECK(pdb.find("ATOM      1 CHLO CHL     0") != std::string::npos);
     }
   }
 }
@@ -5074,7 +5159,8 @@ M  END
     Chirality::reapplyMolBlockWedging(*m);
     CHECK(m->getBondWithIdx(2)->getBondDir() == Bond::BondDir::NONE);
   }
-  SECTION("Reapply the original wedging, regardless the bond type of wedged bonds") {
+  SECTION(
+      "Reapply the original wedging, regardless the bond type of wedged bonds") {
     auto m = R"CTAB(
   Mrv2311 04232413302D          
 
@@ -5710,6 +5796,15 @@ NO_CHARGES
 #       End of record)MOL2";
     std::unique_ptr<RWMol> m(Mol2BlockToMol(mol2));
     REQUIRE(m);
+    CHECK(m->getAtomWithIdx(10)->getAtomicNum() == 15);
+    CHECK(m->getAtomWithIdx(10)->getFormalCharge() == 0);
+    CHECK(m->getAtomWithIdx(11)->getFormalCharge() == 0);
+    CHECK(m->getBondBetweenAtoms(10, 11)->getBondType() == Bond::DOUBLE);
+    CHECK(m->getAtomWithIdx(12)->getFormalCharge() == -1);
+    CHECK(m->getBondBetweenAtoms(10, 12)->getBondType() == Bond::SINGLE);
+    // CHECK: is this correct? Should both of the Os be negative or just one?
+    CHECK(m->getAtomWithIdx(13)->getFormalCharge() == -1);
+    CHECK(m->getBondBetweenAtoms(10, 13)->getBondType() == Bond::SINGLE);
   }
 }
 
@@ -6003,7 +6098,7 @@ $$$$
 }
 
 TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
-  auto mol = "C1CCCCC1"_smiles;
+  auto mol = "C1CCC(*)CC1"_smiles;
   REQUIRE(mol);
 
   auto add_some_props = [](RDProps &obj, const std::string &prefix) {
@@ -6016,6 +6111,8 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
   add_some_props(*mol, "mol");
   add_some_props(*mol->getAtomWithIdx(0), "atom");
   add_some_props(*mol->getBondWithIdx(0), "bond");
+
+  setAtomRLabel(mol->getAtomWithIdx(4), 3);
 
   SECTION("Check output") {
     mol->setProp(common_properties::_Name, "test mol 1");
@@ -6035,24 +6132,24 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     auto ctBlockStart = mae.find("f_m_ct");
     REQUIRE(ctBlockStart != std::string::npos);
 
-    auto atomBlockStart = mae.find("m_atom[6]");
+    auto atomBlockStart = mae.find("m_atom[7]");
     REQUIRE(atomBlockStart != std::string::npos);
 
-    auto bondBlockStart = mae.find("m_bond[6]");
+    auto bondBlockStart = mae.find("m_bond[7]");
     REQUIRE(bondBlockStart != std::string::npos);
 
-    std::string_view ctBlock(&mae[ctBlockStart], atomBlockStart - ctBlockStart);
-    std::string_view atomBlock(&mae[atomBlockStart],
-                               bondBlockStart - atomBlockStart);
-    std::string_view bondBlock(&mae[bondBlockStart]);
+    std::string ctBlock(&mae[ctBlockStart], atomBlockStart - ctBlockStart);
+    std::string atomBlock(&mae[atomBlockStart],
+                          bondBlockStart - atomBlockStart);
+    std::string bondBlock(&mae[bondBlockStart]);
 
     // Check mol properties
     CHECK(ctBlock.find("s_m_title") != std::string::npos);
 
-    CHECK(ctBlock.find("b_rdk_mol_bool_prop") != std::string::npos);
-    CHECK(ctBlock.find("i_rdk_mol_int_prop") != std::string::npos);
-    CHECK(ctBlock.find("r_rdk_mol_real_prop") != std::string::npos);
-    CHECK(ctBlock.find("s_rdk_mol_string_prop") != std::string::npos);
+    CHECK(ctBlock.find("b_rdkit_mol_bool_prop") != std::string::npos);
+    CHECK(ctBlock.find("i_rdkit_mol_int_prop") != std::string::npos);
+    CHECK(ctBlock.find("r_rdkit_mol_real_prop") != std::string::npos);
+    CHECK(ctBlock.find("s_rdkit_mol_string_prop") != std::string::npos);
 
     // Check Atom properties
     CHECK(atomBlock.find("r_m_x_coord") != std::string::npos);
@@ -6061,20 +6158,20 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     CHECK(atomBlock.find("i_m_atomic_number") != std::string::npos);
     CHECK(atomBlock.find("i_m_formal_charge") != std::string::npos);
 
-    CHECK(atomBlock.find("b_rdk_atom_bool_prop") != std::string::npos);
-    CHECK(atomBlock.find("i_rdk_atom_int_prop") != std::string::npos);
-    CHECK(atomBlock.find("r_rdk_atom_real_prop") != std::string::npos);
-    CHECK(atomBlock.find("s_rdk_atom_string_prop") != std::string::npos);
+    CHECK(atomBlock.find("b_rdkit_atom_bool_prop") != std::string::npos);
+    CHECK(atomBlock.find("i_rdkit_atom_int_prop") != std::string::npos);
+    CHECK(atomBlock.find("r_rdkit_atom_real_prop") != std::string::npos);
+    CHECK(atomBlock.find("s_rdkit_atom_string_prop") != std::string::npos);
 
     // Check Bond properties
     CHECK(bondBlock.find("i_m_from") != std::string::npos);
     CHECK(bondBlock.find("i_m_to") != std::string::npos);
     CHECK(bondBlock.find("i_m_order") != std::string::npos);
 
-    CHECK(bondBlock.find("b_rdk_bond_bool_prop") != std::string::npos);
-    CHECK(bondBlock.find("i_rdk_bond_int_prop") != std::string::npos);
-    CHECK(bondBlock.find("r_rdk_bond_real_prop") != std::string::npos);
-    CHECK(bondBlock.find("s_rdk_bond_string_prop") != std::string::npos);
+    CHECK(bondBlock.find("b_rdkit_bond_bool_prop") != std::string::npos);
+    CHECK(bondBlock.find("i_rdkit_bond_int_prop") != std::string::npos);
+    CHECK(bondBlock.find("r_rdkit_bond_real_prop") != std::string::npos);
+    CHECK(bondBlock.find("s_rdkit_bond_string_prop") != std::string::npos);
   }
 
   SECTION("Check bond ends indices order") {
@@ -6088,7 +6185,7 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
 
     std::string line;
     while (std::getline(*oss, line) &&
-           line.find("m_bond[6]") == std::string::npos) {
+           line.find("m_bond[7]") == std::string::npos) {
       // Discard data until we reach the bond block
     }
 
@@ -6167,25 +6264,25 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     auto ctBlockStart = mae.find("f_m_ct");
     REQUIRE(ctBlockStart != std::string::npos);
 
-    auto atomBlockStart = mae.find("m_atom[6]");
+    auto atomBlockStart = mae.find("m_atom[7]");
     REQUIRE(atomBlockStart != std::string::npos);
 
-    auto bondBlockStart = mae.find("m_bond[6]");
+    auto bondBlockStart = mae.find("m_bond[7]");
     REQUIRE(bondBlockStart != std::string::npos);
 
-    std::string_view ctBlock(&mae[ctBlockStart], atomBlockStart - ctBlockStart);
-    std::string_view atomBlock(&mae[atomBlockStart],
-                               bondBlockStart - atomBlockStart);
-    std::string_view bondBlock(&mae[bondBlockStart]);
+    std::string ctBlock(&mae[ctBlockStart], atomBlockStart - ctBlockStart);
+    std::string atomBlock(&mae[atomBlockStart],
+                          bondBlockStart - atomBlockStart);
+    std::string bondBlock(&mae[bondBlockStart]);
 
     // Check mol properties
     CHECK(ctBlock.find("s_m_title") != std::string::npos);
 
-    CHECK(ctBlock.find("b_rdk_mol_bool_prop") != std::string::npos);
+    CHECK(ctBlock.find("b_rdkit_mol_bool_prop") != std::string::npos);
 
-    CHECK(ctBlock.find("i_rdk_mol_int_prop") == std::string::npos);
-    CHECK(ctBlock.find("r_rdk_mol_real_prop") == std::string::npos);
-    CHECK(ctBlock.find("s_rdk_mol_string_prop") == std::string::npos);
+    CHECK(ctBlock.find("i_rdkit_mol_int_prop") == std::string::npos);
+    CHECK(ctBlock.find("r_rdkit_mol_real_prop") == std::string::npos);
+    CHECK(ctBlock.find("s_rdkit_mol_string_prop") == std::string::npos);
 
     // Check Atom properties
     CHECK(atomBlock.find("r_m_x_coord") != std::string::npos);
@@ -6194,25 +6291,25 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     CHECK(atomBlock.find("i_m_atomic_number") != std::string::npos);
     CHECK(atomBlock.find("i_m_formal_charge") != std::string::npos);
 
-    CHECK(atomBlock.find("i_rdk_atom_int_prop") != std::string::npos);
+    CHECK(atomBlock.find("i_rdkit_atom_int_prop") != std::string::npos);
 
-    CHECK(atomBlock.find("b_rdk_atom_bool_prop") == std::string::npos);
-    CHECK(atomBlock.find("r_rdk_atom_real_prop") == std::string::npos);
-    CHECK(atomBlock.find("s_rdk_atom_string_prop") == std::string::npos);
+    CHECK(atomBlock.find("b_rdkit_atom_bool_prop") == std::string::npos);
+    CHECK(atomBlock.find("r_rdkit_atom_real_prop") == std::string::npos);
+    CHECK(atomBlock.find("s_rdkit_atom_string_prop") == std::string::npos);
 
     // Check Bond properties
     CHECK(bondBlock.find("i_m_from") != std::string::npos);
     CHECK(bondBlock.find("i_m_to") != std::string::npos);
     CHECK(bondBlock.find("i_m_order") != std::string::npos);
 
-    CHECK(bondBlock.find("r_rdk_bond_real_prop") != std::string::npos);
+    CHECK(bondBlock.find("r_rdkit_bond_real_prop") != std::string::npos);
 
-    CHECK(bondBlock.find("b_rdk_bond_bool_prop") == std::string::npos);
-    CHECK(bondBlock.find("i_rdk_bond_int_prop") == std::string::npos);
-    CHECK(bondBlock.find("s_rdk_bond_string_prop") == std::string::npos);
+    CHECK(bondBlock.find("b_rdkit_bond_bool_prop") == std::string::npos);
+    CHECK(bondBlock.find("i_rdkit_bond_int_prop") == std::string::npos);
+    CHECK(bondBlock.find("s_rdkit_bond_string_prop") == std::string::npos);
 
-    // The "i_rdk_atom_int_prop" prop should only be set on the first atom,
-    // and unset on the other five
+    // The "i_rdkit_atom_int_prop" prop should only be set on the first atom,
+    // and unset on the other six
     auto count_occurrences = [&atomBlock](const char *needle) {
       size_t pos = 0;
       unsigned counter = 0;
@@ -6224,7 +6321,7 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     };
 
     CHECK(count_occurrences(" 42") == 1);
-    CHECK(count_occurrences(" <>") == 5);
+    CHECK(count_occurrences(" <>") == 6);
   }
 
   SECTION("Check roundtrip") {
@@ -6242,7 +6339,7 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     std::unique_ptr<ROMol> roundtrip_mol(r.next());
     REQUIRE(roundtrip_mol);
 
-    REQUIRE(MolToSmiles(*roundtrip_mol) == "C1CCCCC1");
+    REQUIRE(MolToSmiles(*roundtrip_mol) == "*C1CCCCC1");
 
     {
       INFO("Checking mol properties");
@@ -6258,7 +6355,7 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     // Maeparser does not parse bond properties, so don't check them.
   }
   SECTION("Check reverse roundtrip") {
-    constexpr std::string_view maeBlock = R"MAE(f_m_ct {
+    std::string maeBlock = R"MAE(f_m_ct {
   s_m_title
   :::
   ""
@@ -6348,7 +6445,7 @@ TEST_CASE("MaeWriter basic testing", "[mae][MaeWriter][writer]") {
     auto ctBlockStart = mae.find("f_m_ct");
     REQUIRE(ctBlockStart != std::string::npos);
 
-    std::string_view ctBlock(&mae[ctBlockStart]);
+    std::string ctBlock(&mae[ctBlockStart]);
 
     CHECK(ctBlock == MaeWriter::getText(*mol));
   }
@@ -6616,11 +6713,51 @@ TEST_CASE(
     auto bondBlockStart = mae.find("m_bond[2]");
     REQUIRE(bondBlockStart != std::string::npos);
 
-    const std::string_view atomBlock(&mae[atomBlockStart],
-                                     bondBlockStart - atomBlockStart);
+    const std::string atomBlock(&mae[atomBlockStart],
+                                bondBlockStart - atomBlockStart);
 
     CHECK(atomBlock.find(" -2 ") != std::string::npos);
   }
+}
+
+TEST_CASE("MaeWriter should not prefix Maestro-formatted properties") {
+  std::string rdbase = getenv("RDBASE");
+  std::string fname1 =
+      rdbase + "/Code/GraphMol/FileParsers/test_data/NCI_aids_few.mae";
+
+  v2::FileParsers::MaeMolSupplier supplier(fname1);
+  auto mol = supplier.next();
+  REQUIRE(mol);
+
+  // MaeMolSupplier should ignore the i_m_ct_enhanced_stereo_status property
+  // (it's meaningless to the RDKit)
+  CHECK(mol->hasProp("i_m_ct_enhanced_stereo_status") == false);
+
+  std::string mae_block;
+  {
+    auto oss = new std::ostringstream;
+    MaeWriter w(oss);
+    w.write(*mol);
+    w.flush();
+    mae_block = oss->str();
+  }
+
+  // properties that already match the Maestro format should not be prefixed
+  // with "[birs]_rdkit_"
+  CHECK(mae_block.find("b_rdkit_b_m_subgroup_collapsed") == std::string::npos);
+  CHECK(mae_block.find("b_m_subgroup_collapsed") != std::string::npos);
+
+  CHECK(mae_block.find("b_rdkit_b_sd_chiral_flag") == std::string::npos);
+  CHECK(mae_block.find("b_sd_chiral_flag") != std::string::npos);
+
+  CHECK(mae_block.find("i_rdkit_i_m_Source_File_Index") == std::string::npos);
+  CHECK(mae_block.find("i_m_Source_File_Index") != std::string::npos);
+
+  CHECK(mae_block.find("i_rdkit_i_m_ct_format") == std::string::npos);
+  CHECK(mae_block.find("i_m_ct_format") != std::string::npos);
+
+  CHECK(mae_block.find("s_rdkit_s_m_entry_name") == std::string::npos);
+  CHECK(mae_block.find("s_m_entry_name") != std::string::npos);
 }
 
 #endif
@@ -7233,5 +7370,46 @@ M  END
     CHECK(m2->getNumBonds() == 8);
     CHECK(m2->getBondWithIdx(3)->getBondType() == Bond::ZERO);
     CHECK(m2->getBondWithIdx(7)->getBondType() == Bond::ZERO);
+  }
+}
+
+TEST_CASE("MolToV2KMolBlock") {
+  SECTION("basics") {
+    auto m = "[NH3]->[Pt]"_smiles;
+    REQUIRE(m);
+    // by default we get a V3K block since there is a dative bond present
+    auto mb = MolToMolBlock(*m);
+    CHECK(mb.find("V3000") != std::string::npos);
+    CHECK(mb.find("V30 1 9 1 2") != std::string::npos);
+    // but we can ask for a V2K block
+    mb = MolToV2KMolBlock(*m);
+    CHECK(mb.find("V2000") != std::string::npos);
+    CHECK(mb.find("  1  2  9  0") != std::string::npos);
+  }
+  SECTION("limits") {
+    // we won't test SGroups since creating 1000 of them is a bit much
+    std::vector<std::string> smileses = {
+        std::string(1000, 'C'),
+        "C1CC2" + std::string(996, 'C') + "12",
+    };
+    for (const auto &smi : smileses) {
+      INFO(smi);
+      auto m = SmilesToMol(smi);
+      REQUIRE(m);
+      CHECK_THROWS_AS(MolToV2KMolBlock(*m), ValueErrorException);
+    }
+  }
+}
+
+TEST_CASE("Github #7306: bad crossed bonds in large aromatic rings") {
+  std::string rdbase = getenv("RDBASE");
+  rdbase += "/Code/GraphMol/FileParsers/test_data/";
+  SECTION("as reported") {
+    auto m = v2::FileParsers::MolFromMolFile(rdbase + "github7306.mol");
+    REQUIRE(m);
+    auto ctab = MolToV3KMolBlock(*m);
+    CHECK(ctab.find("CFG=2") == std::string::npos);
+    ctab = MolToMolBlock(*m);
+    CHECK(ctab.find("2  3\n") == std::string::npos);
   }
 }

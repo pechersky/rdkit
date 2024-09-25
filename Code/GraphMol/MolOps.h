@@ -1,6 +1,5 @@
 //
-//  Copyright (C) 2001-2021 Greg Landrum and Rational Discovery LLC
-//  Copyright (c) 2014, Novartis Institutes for BioMedical Research Inc.
+//  Copyright (C) 2001-2024 Greg Landrum and other RDKit contributors
 //
 //   @@ All Rights Reserved @@
 //  This file is part of the RDKit.
@@ -9,8 +8,8 @@
 //  of the RDKit source tree.
 //
 #include <RDGeneral/export.h>
-#ifndef _RD_MOL_OPS_H_
-#define _RD_MOL_OPS_H_
+#ifndef RD_MOL_OPS_H
+#define RD_MOL_OPS_H
 
 #include <vector>
 #include <map>
@@ -89,6 +88,32 @@ RDKIT_GRAPHMOL_EXPORT unsigned int getMolFrags(
 /*!
 
   \param mol     the molecule of interest
+  \param molFrags used to return the disconnected fragments as molecules.
+                  Any contents on input will be cleared.
+  \param sanitizeFrags  toggles sanitization of the fragments after
+                        they are built
+  \param frags used to return the mapping of Atoms->fragments.
+     if provided, \c frags will be <tt>mol->getNumAtoms()</tt> long
+         on return and will contain the fragment assignment for each Atom.
+  \param fragsMolAtomMapping  used to return the Atoms in each fragment
+     On return \c mapping will be \c numFrags long, and each entry
+     will contain the indices of the Atoms in that fragment.
+   \param copyConformers  toggles copying conformers of the fragments after
+                        they are built
+  \return the number of fragments found.
+
+*/
+RDKIT_GRAPHMOL_EXPORT unsigned int getMolFrags(
+    const ROMol &mol, std::vector<std::unique_ptr<ROMol>> &molFrags,
+    bool sanitizeFrags = true, std::vector<int> *frags = nullptr,
+    std::vector<std::vector<int>> *fragsMolAtomMapping = nullptr,
+    bool copyConformers = true);
+
+//! splits a molecule into its component fragments
+/// (disconnected components of the molecular graph)
+/*!
+
+  \param mol     the molecule of interest
   \param sanitizeFrags  toggles sanitization of the fragments after
                         they are built
   \param frags used to return the mapping of Atoms->fragments.
@@ -122,12 +147,35 @@ RDKIT_GRAPHMOL_EXPORT std::vector<boost::shared_ptr<ROMol>> getMolFrags(
   \return a map of the fragments and their labels
 
 */
+
 template <typename T>
 RDKIT_GRAPHMOL_EXPORT std::map<T, boost::shared_ptr<ROMol>>
 getMolFragsWithQuery(const ROMol &mol, T (*query)(const ROMol &, const Atom *),
                      bool sanitizeFrags = true,
                      const std::vector<T> *whiteList = nullptr,
                      bool negateList = false);
+//! splits a molecule into pieces based on labels assigned using a query,
+//! putting them into a map of std::unique_ptr<ROMol>.
+/*!
+
+  \param mol     the molecule of interest
+  \param query   the query used to "label" the molecule for fragmentation
+  \param molFrags used to return the disconnected fragments as molecules.
+                 Any contents on input will be cleared.
+  \param sanitizeFrags  toggles sanitization of the fragments after
+                        they are built
+  \param whiteList  if provided, only labels in the list will be kept
+  \param negateList if true, the white list logic will be inverted: only labels
+                    not in the list will be kept
+
+  \return the number of fragments
+
+*/
+template <typename T>
+RDKIT_GRAPHMOL_EXPORT unsigned int getMolFragsWithQuery(
+    const ROMol &mol, T (*query)(const ROMol &, const Atom *),
+    std::map<T, std::unique_ptr<ROMol>> &molFrags, bool sanitizeFrags = true,
+    const std::vector<T> *whiteList = nullptr, bool negateList = false);
 
 #if 0
     //! finds a molecule's minimum spanning tree (MST)
@@ -542,8 +590,12 @@ typedef enum {
   AROMATICITY_RDKIT = 0x1,
   AROMATICITY_SIMPLE = 0x2,
   AROMATICITY_MDL = 0x4,
+  AROMATICITY_MMFF94 = 0x8,
   AROMATICITY_CUSTOM = 0xFFFFFFF  ///< use a function
 } AromaticityModel;
+
+
+RDKIT_GRAPHMOL_EXPORT void setMMFFAromaticity(RWMol &mol);
 
 //! Sets up the aromaticity for a molecule
 /*!
@@ -952,10 +1004,13 @@ class Hybridizations {
   std::vector<int> d_hybridizations;
 };
 
-//! removes bogus chirality markers (those on non-sp3 centers):
+//! removes bogus chirality markers (e.g. tetrahedral flags on non-sp3 centers):
 RDKIT_GRAPHMOL_EXPORT void cleanupChirality(RWMol &mol);
 
+//! \overload
 RDKIT_GRAPHMOL_EXPORT void cleanupAtropisomers(RWMol &);
+//! removes bogus atropisomeric markers (e.g. those without sp2 begin and end
+//! atoms):
 RDKIT_GRAPHMOL_EXPORT void cleanupAtropisomers(RWMol &mol,
                                                Hybridizations &hybridizations);
 
@@ -1141,6 +1196,45 @@ RDKIT_GRAPHMOL_EXPORT ROMol *dativeBondsToHaptic(const ROMol &mol);
 
 //! \overload modifies molecule in place.
 RDKIT_GRAPHMOL_EXPORT void dativeBondsToHaptic(RWMol &mol);
+
+/*!
+  Calculates a molecule's average molecular weight
+
+  \param mol        the molecule of interest
+  \param onlyHeavy  (optional) if this is true (the default is false),
+      only heavy atoms will be included in the MW calculation
+
+  \return the AMW
+*/
+RDKIT_GRAPHMOL_EXPORT double getAvgMolWt(const ROMol &mol,
+                                         bool onlyHeavy = false);
+/*!
+  Calculates a molecule's exact molecular weight
+
+  \param mol        the molecule of interest
+  \param onlyHeavy  (optional) if this is true (the default is false),
+      only heavy atoms will be included in the MW calculation
+
+  \return the exact MW
+*/
+RDKIT_GRAPHMOL_EXPORT double getExactMolWt(const ROMol &mol,
+                                           bool onlyHeavy = false);
+
+/*!
+  Calculates a molecule's formula
+
+  \param mol        the molecule of interest
+  \param separateIsotopes  if true, isotopes will show up separately in the
+     formula. So C[13CH2]O will give the formula: C[13C]H6O
+  \param abbreviateHIsotopes  if true, 2H and 3H will be represented as
+     D and T instead of [2H] and [3H]. This only applies if \c separateIsotopes
+     is true
+
+  \return the formula as a string
+*/
+RDKIT_GRAPHMOL_EXPORT std::string getMolFormula(
+    const ROMol &mol, bool separateIsotopes = false,
+    bool abbreviateHIsotopes = true);
 
 namespace details {
 //! not recommended for use in other code

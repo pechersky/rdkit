@@ -458,8 +458,13 @@ std::unique_ptr<RWMol> MolFromSmiles(const std::string &smiles,
     res->updatePropertyCache(false);
     MolOps::assignChiralTypesFrom3D(*res, conf3d->getId(), true);
   }
-  if (conf || conf3d) {
-    Atropisomers::detectAtropisomerChirality(*res, conf ? conf : conf3d);
+
+  if (conf) {
+    Atropisomers::detectAtropisomerChirality(*res, conf);
+  } else if (conf3d) {
+    Atropisomers::detectAtropisomerChirality(*res, conf3d);
+  } else {
+    Atropisomers::detectAtropisomerChirality(*res, nullptr);
   }
 
   if (res && (params.sanitize || params.removeHs)) {
@@ -474,12 +479,12 @@ std::unique_ptr<RWMol> MolFromSmiles(const std::string &smiles,
     if (res->hasProp(SmilesParseOps::detail::_needsDetectBondStereo)) {
       // we encountered either wiggly bond in the CXSMILES,
       // these need to be handled the same way they were in mol files
-
-      res->clearProp(SmilesParseOps::detail::_needsDetectBondStereo);
-
-      MolOps::clearSingleBondDirFlags(*res);
-      MolOps::detectBondStereochemistry(*res);
+      if (conf || conf3d) {
+        MolOps::clearSingleBondDirFlags(*res);
+      }
+      MolOps::setDoubleBondNeighborDirections(*res, conf ? conf : conf3d);
     }
+    res->clearProp(SmilesParseOps::detail::_needsDetectBondStereo);
     // figure out stereochemistry:
     bool cleanIt = true, force = true, flagPossible = true;
     MolOps::assignStereochemistry(*res, cleanIt, force, flagPossible);

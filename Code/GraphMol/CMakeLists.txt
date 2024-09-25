@@ -8,7 +8,7 @@ rdkit_library(GraphMol
         Renumber.cpp AdjustQuery.cpp Resonance.cpp StereoGroup.cpp
         new_canon.cpp SubstanceGroup.cpp FindStereo.cpp MonomerInfo.cpp
               NontetrahedralStereo.cpp Atropisomers.cpp
-              WedgeBonds.cpp
+              WedgeBonds.cpp MolProps.cpp
         SHARED
               LINK_LIBRARIES RDGeometryLib RDGeneral )
 target_compile_definitions(GraphMol PRIVATE RDKIT_GRAPHMOL_BUILD)
@@ -22,6 +22,7 @@ endif ()
 rdkit_headers(Atom.h
         atomic_data.h
         AtomIterators.h
+        Atropisomers.h
         Bond.h
         BondIterators.h
         Canon.h
@@ -122,6 +123,7 @@ add_subdirectory(ScaffoldNetwork)
 add_subdirectory(MolEnumerator)
 add_subdirectory(Abbreviations)
 add_subdirectory(GeneralizedSubstruct)
+add_subdirectory(MolProcessing)
 
 
 rdkit_test(graphmolTest1 test1.cpp LINK_LIBRARIES FileParsers SmilesParse GraphMol
@@ -195,3 +197,7 @@ rdkit_catch_test(pickleTestsCatch catch_pickles.cpp
 
 rdkit_catch_test(tableTestsCatch catch_periodictable.cpp
         LINK_LIBRARIES GraphMol)
+
+rdkit_catch_test(molopsTestsCatch catch_molops.cpp
+        LINK_LIBRARIES SmilesParse GraphMol)
+

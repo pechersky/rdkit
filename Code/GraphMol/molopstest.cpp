@@ -43,6 +43,7 @@ void test1() {
   INT_VECT iv;
   unsigned int count;
   std::vector<ROMOL_SPTR> frags;
+  std::vector<std::unique_ptr<ROMol>> otherFrags;
 
   smi = "CCCC(=O)O";
   m = SmilesToMol(smi);
@@ -52,6 +53,9 @@ void test1() {
   frags = MolOps::getMolFrags(*m);
   CHECK_INVARIANT(frags.size() == 1, "bad frag count");
   TEST_ASSERT(frags[0]->getNumAtoms() == 6);
+  count = MolOps::getMolFrags(*m, otherFrags);
+  CHECK_INVARIANT(count == 1, "bad frag count");
+  CHECK_INVARIANT(otherFrags.size() == 1, "bad frag count");
   delete m;
 
   smi = "CCCC(=O)[O-].[Na+]";
@@ -70,6 +74,14 @@ void test1() {
   TEST_ASSERT(iv.size() == 7);
   TEST_ASSERT(iv[0] == 0)
   TEST_ASSERT(iv[6] == 1)
+  count = MolOps::getMolFrags(*m, otherFrags, true, &iv);
+  CHECK_INVARIANT(count == 2, "bad frag count");
+  CHECK_INVARIANT(otherFrags.size() == 2, "bad frag count");
+  TEST_ASSERT(frags[0]->getNumAtoms() == 6);
+  TEST_ASSERT(frags[1]->getNumAtoms() == 1);
+  TEST_ASSERT(iv.size() == 7);
+  TEST_ASSERT(iv[0] == 0)
+  TEST_ASSERT(iv[6] == 1)
   delete m;
 
   smi = "CCCC(=O)[O-].[Na+].[NH4+].[Cl-]";
@@ -83,6 +95,13 @@ void test1() {
   TEST_ASSERT(frags[1]->getNumAtoms() == 1);
   TEST_ASSERT(frags[2]->getNumAtoms() == 1);
   TEST_ASSERT(frags[3]->getNumAtoms() == 1);
+  count = MolOps::getMolFrags(*m, otherFrags);
+  CHECK_INVARIANT(count == 4, "bad frag count");
+  CHECK_INVARIANT(otherFrags.size() == 4, "bad frag count");
+  TEST_ASSERT(otherFrags[0]->getNumAtoms() == 6);
+  TEST_ASSERT(otherFrags[1]->getNumAtoms() == 1);
+  TEST_ASSERT(otherFrags[2]->getNumAtoms() == 1);
+  TEST_ASSERT(otherFrags[3]->getNumAtoms() == 1);
   delete m;
 };
 
@@ -3023,7 +3042,7 @@ void testAromaticityEdges() {
   TEST_ASSERT(m->getBondWithIdx(0)->getIsAromatic());
   delete m;
 
-  smi = "C=[C+]1=CNC=N1";
+  smi = "[C+]1=CNC=N1";
   m = SmilesToMol(smi);
   TEST_ASSERT(m);
   TEST_ASSERT(!m->getAtomWithIdx(1)->getIsAromatic());
@@ -3815,13 +3834,6 @@ void testSFNetIssue2952255() {
   }
   {
     std::string smi = "[C-](C)C";
-    RWMol *m = SmilesToMol(smi);
-    TEST_ASSERT(m);
-    TEST_ASSERT(m->getAtomWithIdx(0)->getNumRadicalElectrons() == 1);
-    delete m;
-  }
-  {
-    std::string smi = "[C+](C)(C)(C)C";
     RWMol *m = SmilesToMol(smi);
     TEST_ASSERT(m);
     TEST_ASSERT(m->getAtomWithIdx(0)->getNumRadicalElectrons() == 1);
@@ -5234,6 +5246,20 @@ void testMolFragsWithQuery() {
     TEST_ASSERT(res[7]->getNumBonds() == 1);
     TEST_ASSERT(res[8]->getNumAtoms() == 1);
     TEST_ASSERT(res[8]->getNumBonds() == 0);
+
+    std::map<int, std::unique_ptr<ROMol>> otherRes;
+    MolOps::getMolFragsWithQuery(*m, getAtNum, otherRes);
+    TEST_ASSERT(otherRes.size() == 3);
+    TEST_ASSERT(otherRes.find(6) != otherRes.end());
+    TEST_ASSERT(otherRes.find(7) != otherRes.end());
+    TEST_ASSERT(otherRes.find(8) != otherRes.end());
+    TEST_ASSERT(otherRes.find(5) == otherRes.end());
+    TEST_ASSERT(otherRes[6]->getNumAtoms() == 5);
+    TEST_ASSERT(otherRes[6]->getNumBonds() == 4);
+    TEST_ASSERT(otherRes[7]->getNumAtoms() == 2);
+    TEST_ASSERT(otherRes[7]->getNumBonds() == 1);
+    TEST_ASSERT(otherRes[8]->getNumAtoms() == 1);
+    TEST_ASSERT(otherRes[8]->getNumBonds() == 0);
     delete m;
   }
   {
@@ -5254,6 +5280,17 @@ void testMolFragsWithQuery() {
     TEST_ASSERT(res[6]->getNumBonds() == 4);
     TEST_ASSERT(res[8]->getNumAtoms() == 1);
     TEST_ASSERT(res[8]->getNumBonds() == 0);
+    std::map<int, std::unique_ptr<ROMol>> otherRes;
+    MolOps::getMolFragsWithQuery(*m, getAtNum, otherRes, true, &keep);
+    TEST_ASSERT(otherRes.size() == 2);
+    TEST_ASSERT(otherRes.find(6) != otherRes.end());
+    TEST_ASSERT(otherRes.find(7) == otherRes.end());
+    TEST_ASSERT(otherRes.find(8) != otherRes.end());
+    TEST_ASSERT(otherRes[6]->getNumAtoms() == 5);
+    TEST_ASSERT(otherRes[6]->getNumBonds() == 4);
+    TEST_ASSERT(otherRes[8]->getNumAtoms() == 1);
+    TEST_ASSERT(otherRes[8]->getNumBonds() == 0);
+
     delete m;
   }
   {
@@ -5272,6 +5309,15 @@ void testMolFragsWithQuery() {
     TEST_ASSERT(res.find(8) == res.end());
     TEST_ASSERT(res[7]->getNumAtoms() == 2);
     TEST_ASSERT(res[7]->getNumBonds() == 1);
+
+    std::map<int, std::unique_ptr<ROMol>> otherRes;
+    MolOps::getMolFragsWithQuery(*m, getAtNum, otherRes, true, &keep, true);
+    TEST_ASSERT(otherRes.size() == 1);
+    TEST_ASSERT(otherRes.find(6) == otherRes.end());
+    TEST_ASSERT(otherRes.find(7) != otherRes.end());
+    TEST_ASSERT(otherRes.find(8) == otherRes.end());
+    TEST_ASSERT(otherRes[7]->getNumAtoms() == 2);
+    TEST_ASSERT(otherRes[7]->getNumBonds() == 1);
 
     delete m;
   }
@@ -5447,7 +5493,15 @@ void testGithubIssue447() {
     delete m;
   }
   {
-    std::string smiles = "C[SH4+]C";
+    std::string smiles = "C[SH3]C";
+    RWMol *m = SmilesToMol(smiles);
+    TEST_ASSERT(m);
+    TEST_ASSERT(m->getAtomWithIdx(1)->getNoImplicit());
+    TEST_ASSERT(m->getAtomWithIdx(1)->getNumRadicalElectrons() == 1);
+    delete m;
+  }
+  {
+    std::string smiles = "C[SH2+]C";
     RWMol *m = SmilesToMol(smiles);
     TEST_ASSERT(m);
     TEST_ASSERT(m->getAtomWithIdx(1)->getNoImplicit());
@@ -6946,6 +7000,39 @@ void testSimpleAromaticity() {
     MolOps::setAromaticity(*m, MolOps::AROMATICITY_SIMPLE);
     TEST_ASSERT(m->getBondWithIdx(0)->getIsAromatic() == false);
     TEST_ASSERT(m->getAtomWithIdx(0)->getIsAromatic() == false);
+    delete m;
+  }
+  BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
+}
+
+void testMMFFAromaticity() {
+  {
+    BOOST_LOG(rdInfoLog)
+        << "-----------------------\n Testing MMFF94 aromaticity" << std::endl;
+
+    // test one known difference between RDKit and MMFF94 aromaticity models:
+    // the latter does not recognize azulene as aromatic
+
+    std::string smiles = "C1=CC=C2C=CC=C2C=C1";
+    RWMol *m = SmilesToMol(smiles);
+    MolOps::Kekulize(*m, true);
+
+    MolOps::setAromaticity(*m, MolOps::AROMATICITY_RDKIT);
+    int arombondcount = 0;
+    for (auto b : m->bonds()) {
+      if (b->getIsAromatic()) arombondcount++;
+    }
+    // all bonds, except the fused one, should be aromatic
+    TEST_ASSERT(arombondcount == 10);
+    TEST_ASSERT(m->getBondBetweenAtoms(3, 7)->getIsAromatic() == false);
+
+    MolOps::setAromaticity(*m, MolOps::AROMATICITY_MMFF94);
+    arombondcount = 0;
+    for (auto b : m->bonds()) {
+      if (b->getIsAromatic()) arombondcount++;
+    }
+    // no aromatics here
+    TEST_ASSERT(arombondcount == 0);
     delete m;
   }
   BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
@@ -8478,7 +8565,7 @@ void testHasQueryHs() {
 
 void testIsRingFused() {
   BOOST_LOG(rdWarningLog) << "-----------------------\n Testing isRingFused "
-                       << std::endl;
+                          << std::endl;
   auto molOrig = "C1C(C2CC3CCCCC3C12)C1CCCCC1"_smiles;
   {
     RWMol mol(*molOrig);
@@ -8633,6 +8720,7 @@ int main() {
   testKekulizeErrorReporting();
   testGithubIssue868();
   testSimpleAromaticity();
+  testMMFFAromaticity();
   testGithubIssue1730();
   testCustomAromaticity();
   testGithubIssue908();
