@@ -66,6 +66,7 @@ RUN rm -rf build && mkdir build && cd build && \
     -DPostgreSQL_TYPE_INCLUDE_DIR="/usr/include/postgresql/16/server" \
     -DPostgreSQL_LIBRARY="/usr/lib/x86_64-linux-gnu/libpq.so"
 RUN cd build && make -j `nproc` install
+RUN echo "trusted = true" >> /rdkit/Code/PgSQL/rdkit/rdkit.control
 
 FROM postgres:16
 COPY --from=rdkit-build /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/16/extension/rdkit.control
