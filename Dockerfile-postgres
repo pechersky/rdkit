@@ -1,6 +1,9 @@
 # FROM alpine as rdkit-build
 # RUN apk add --no-cache sudo cmake gcc g++ make git \
 #     boost-dev freetype-dev postgresql-common postgresql postgresql-dev
+ARG PG_VERSION=16
+ARG PG_VERSION_MINOR=9
+ARG RDKIT="2024_09_6"
 
 # https://github.com/sameersbn/docker-postgresql/blob/f5b7752b9336b89a651541cf9872e6fe5cff4e4e/Dockerfile#L1
 FROM ubuntu:jammy-20250126 AS add-apt-repositories
@@ -12,8 +15,14 @@ RUN apt-get update \
 
 FROM ubuntu:jammy-20250126 AS rdkit-build
 USER root
+
+ARG PG_VERSION
+ARG PG_VERSION_MINOR
+ARG RDKIT
+
 ENV PG_APP_HOME="/etc/docker-postgresql" \
-    PG_VERSION=16 \
+    PG_VERSION=${PG_VERSION} \
+    PG_VERSION_MINOR=${PG_VERSION_MINOR} \
     PG_USER=postgres \
     PG_HOME=/var/lib/postgresql \
     PG_RUNDIR=/run/postgresql \
@@ -28,7 +37,7 @@ COPY --from=add-apt-repositories /etc/apt/sources.list /etc/apt/sources.list
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y acl sudo locales \
-      postgresql-${PG_VERSION} postgresql-client-${PG_VERSION} postgresql-contrib-${PG_VERSION} postgresql-server-dev-${PG_VERSION} libpq-dev \
+      "postgresql-${PG_VERSION}=${PG_VERSION}.${PG_VERSION_MINOR}*" postgresql-client-${PG_VERSION} postgresql-contrib-${PG_VERSION} postgresql-server-dev-${PG_VERSION} libpq-dev \
  && update-locale LANG=C.UTF-8 LC_MESSAGES=POSIX \
  && locale-gen en_US.UTF-8 \
  && DEBIAN_FRONTEND=noninteractive dpkg-reconfigure locales \
@@ -41,7 +50,7 @@ RUN apt-get update \
 RUN apt-get update && \
     apt-get install -y sudo cmake gcc g++ make git \
    libboost-all-dev libfreetype-dev
-RUN git clone --depth=1 --single-branch --branch Release_2024_03_6 https://github.com/rdkit/rdkit
+RUN git clone --depth=1 --single-branch --branch Release_${RDKIT} https://github.com/rdkit/rdkit
 WORKDIR /rdkit
 RUN rm -rf build && mkdir build && cd build && \
     cmake .. \
@@ -68,9 +77,14 @@ RUN rm -rf build && mkdir build && cd build && \
 RUN cd build && make -j `nproc` install
 RUN echo "trusted = true" >> /rdkit/Code/PgSQL/rdkit/rdkit.control
 
-FROM postgres:16
+FROM postgres:${PG_VERSION}.${PG_VERSION_MINOR} AS prod
+
+ARG PG_VERSION
+ARG PG_VERSION_MINOR
+ARG RDKIT
+
 COPY --from=rdkit-build /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/16/extension/rdkit.control
-COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/rdkit--4.6.0.sql /usr/share/postgresql/16/extension/rdkit--4.6.0.sql
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/rdkit--4.6.1.sql /usr/share/postgresql/16/extension/rdkit--4.6.1.sql
 COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/update_sql/*.sql /usr/share/postgresql/16/extension/
 COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/16/lib/rdkit.so
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libfreetype.so.6 /usr/include
@@ -80,4 +94,4 @@ COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlidec.so.1 /usr/include
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libbrotlicommon.so.1 /usr/include
 ENV LD_LIBRARY_PATH=/usr/include
 LABEL org.opencontainers.image.source="https://github.com/pechersky/rdkit"
-LABEL org.opencontainers.image.version="postgres-16.6-2024_03_6"
+LABEL org.opencontainers.image.version="postgres-${PG_VERSION}.${PG_VERSION_MINOR}-${RDKIT}"
