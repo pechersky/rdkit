@@ -21,6 +21,15 @@ if(RDK_BUILD_INCHI_SUPPORT)
   target_sources(bench PRIVATE inchi.cpp)
 endif(RDK_BUILD_INCHI_SUPPORT)
 
+# Tautomer canonicalization profiler for perf benchmarking
+add_executable(tautomer_canonicalize_profile tautomer_canonicalize_profile.cpp)
+target_link_libraries(tautomer_canonicalize_profile MolStandardize FileParsers SmilesParse RDGeneral)
+# Enable frame pointers for better perf stack traces
+target_compile_options(tautomer_canonicalize_profile PRIVATE -fno-omit-frame-pointer)
+install(TARGETS tautomer_canonicalize_profile
+        RUNTIME DESTINATION ${RDKit_BinDir}
+        COMPONENT profiling)
+
 if(RDK_BUILD_CPP_TESTS)
   # add a fast version of the benchmarks to the default unit tests
   # to protect the benchmarks from bit-rot

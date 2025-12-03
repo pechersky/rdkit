@@ -157,3 +157,8 @@ node_modules
 /compile_commands.json
 /External/ChemDraw/chemdraw
 /External/AvalonTools/ava-formake-AvalonToolkit*
+
+.venv*/
+container/
+External/
+rdkit-stubs/
