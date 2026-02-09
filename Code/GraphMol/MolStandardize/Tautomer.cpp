@@ -670,6 +670,9 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
   res.d_modifiedAtoms.resize(mol.getNumAtoms());
   res.d_modifiedBonds.resize(mol.getNumBonds());
 
+  std::unordered_set<std::string> preSanitizeStateKeys;
+  preSanitizeStateKeys.reserve(d_maxTautomers * 2);
+
   // Keep running counts of modified atoms/bonds.
   // `boost::dynamic_bitset<>::count()` is O(n) in the number of blocks, and we
   // were previously calling it once per new tautomer, which is avoidable.
