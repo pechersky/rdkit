@@ -878,35 +878,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 #endif
           setTautomerStereoAndIsoHs(mol, *product, res);
 
-          // If we are preserving sp3 stereo, tag tautomers that convert
-          // a chiral sp3 center from the input into sp2/aromatic, since that
-          // would irreversibly destroy the stereochemistry.  pickCanonical()
-          // will then avoid selecting these tautomers.
-          if (!d_removeSp3Stereo) {
-            bool destroysStereo = false;
-            for (auto aidx = res.d_modifiedAtoms.find_first();
-                 aidx != boost::dynamic_bitset<>::npos;
-                 aidx = res.d_modifiedAtoms.find_next(aidx)) {
-              const auto origAtom =
-                  mol.getAtomWithIdx(static_cast<unsigned int>(aidx));
-              if (origAtom->getChiralTag() != Atom::CHI_UNSPECIFIED) {
-                const auto prodAtom = product->getAtomWithIdx(aidx);
-                if (prodAtom->getHybridization() == Atom::SP2 ||
-                    prodAtom->getIsAromatic()) {
-                  destroysStereo = true;
-                  break;
-                }
-              }
-            }
-            if (destroysStereo) {
-#ifdef VERBOSE_ENUMERATION
-              std::cout << "Tagging tautomer that destroys sp3 stereo"
-                        << std::endl;
-#endif
-              product->setProp("_destroysSp3Stereo", 1);
-            }
-          }
-
           // Quick duplicate check using cheap state key (also the map key)
           std::string stateKey = getTautomerStateKey(*product);
           if (res.d_tautomers.find(stateKey) != res.d_tautomers.end()) {
@@ -1027,37 +998,11 @@ ROMol *TautomerEnumerator::pickCanonical(
   if (tautRes.d_tautomers.size() == 1) {
     bestMol = tautRes.d_tautomers.begin()->second.tautomer;
   } else {
-    // When preserving sp3 stereo, skip tautomers tagged as destroying it
-    // during enumeration — unless ALL tautomers are tagged (fallback).
-    const bool filterStereo =
-        !d_removeSp3Stereo &&
-        std::any_of(tautRes.d_tautomers.begin(), tautRes.d_tautomers.end(),
-                    [](const SmilesTautomerPair &t) {
-                      int v = 0;
-                      return t.second.tautomer->getPropIfPresent(
-                                 "_destroysSp3Stereo", v) &&
-                             v;
-                    }) &&
-        !std::all_of(tautRes.d_tautomers.begin(), tautRes.d_tautomers.end(),
-                     [](const SmilesTautomerPair &t) {
-                       int v = 0;
-                       return t.second.tautomer->getPropIfPresent(
-                                  "_destroysSp3Stereo", v) &&
-                              v;
-                     });
-
     // Calculate score for each tautomer
     int bestScore = std::numeric_limits<int>::min();
     std::string bestSmiles;
     bool bestSmilesInitialized = false;
     for (const auto &t : tautRes.d_tautomers) {
-      if (filterStereo) {
-        int v = 0;
-        if (t.second.tautomer->getPropIfPresent("_destroysSp3Stereo", v) &&
-            v) {
-          continue;
-        }
-      }
       auto score = scoreFunc(*t.second.tautomer);
 #ifdef VERBOSE_ENUMERATION
       std::cerr << "  " << t.first << " " << score << std::endl;
