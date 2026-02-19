@@ -781,6 +781,8 @@ bool TautomerEnumerator::setTautomerStereoAndIsoHs(
   if (d_reassignStereo) {
     static const bool cleanIt = true;
     static const bool force = true;
+    // cleanIt and force = true are load-bearing, captured in testTautomer
+    // for CIP code assignment
     MolOps::assignStereochemistry(taut, cleanIt, force);
   } else {
     taut.setProp(common_properties::_StereochemDone, 1);
@@ -1233,9 +1235,10 @@ ROMol *TautomerEnumerator::pickCanonical(
     }
   }
   ROMol *res = new ROMol(*bestMol);
-  static const bool cleanIt = true;
-  static const bool force = true;
-  MolOps::assignStereochemistry(*res, cleanIt, force);
+
+  // we used to set stereo here, but now it is inside the denormalization step,
+  // because we move atoms/bonds around when we normalize,
+  // which requires us to recalc stereo anyway.
 
   return res;
 }
@@ -1335,11 +1338,15 @@ ROMol *TautomerEnumerator::denormalizeAtomBondOrder(
   copyStereoGroupsByIndices(origMol, fixedMol, true);
   auto *res = new ROMol(fixedMol);
 
-  // Recompute CIP codes: bond storage order changed, which affects
-  // neighbor iteration order around chiral atoms.
-  static const bool cleanIt = true;
-  static const bool force = true;
-  MolOps::assignStereochemistry(*res, cleanIt, force);
+  // Denormalization rebuilds the molecule (and changes bond insertion order).
+  // Recompute stereochemistry/CIP on the rebuilt molecule.
+  //
+  // - cleanIt=true: the rebuild can change neighbor-iteration order around
+  //   stereocenters and can invalidate CIP/stereo perception.
+  // - force=false: this is a freshly rebuilt molecule and
+  //   this path is used from within tautomer canonicalization. We don't need
+  //   to override any existing "stereo already perceived" marker here.
+  MolOps::assignStereochemistry(*res, true, false);
 
   return res;
 }
@@ -1395,7 +1402,11 @@ ROMol *TautomerEnumerator::canonicalize(
   if (!scoreFunc) {
     scoreFunc = TautomerScoringFunctions::makeOptimizedScorer(molForEnumeration);
   }
-  std::unique_ptr<ROMol> canonical{pickCanonical(res, scoreFunc)};
+  // Important: pickCanonical() respects the enumerator's stereo policy.
+  // canonicalize() uses a copy (thisCopy) with reassignStereo=false so that we
+  // preserve existing stereo information through normalization/denormalization
+  // instead of re-perceiving it with cleanIt=true.
+  std::unique_ptr<ROMol> canonical{thisCopy.pickCanonical(res, scoreFunc)};
 
   // Remap canonical tautomer back to original atom order.
   ROMol *result =
@@ -1432,7 +1443,8 @@ void TautomerEnumerator::canonicalizeInPlace(
   if (!scoreFunc) {
     scoreFunc = TautomerScoringFunctions::makeOptimizedScorer(molForEnumeration);
   }
-  std::unique_ptr<ROMol> canonical{pickCanonical(res, scoreFunc)};
+  // Important: use thisCopy here so pickCanonical() sees reassignStereo=false.
+  std::unique_ptr<ROMol> canonical{thisCopy.pickCanonical(res, scoreFunc)};
 
   // Remap canonical tautomer back to original atom order.
   std::unique_ptr<ROMol> tmp{
