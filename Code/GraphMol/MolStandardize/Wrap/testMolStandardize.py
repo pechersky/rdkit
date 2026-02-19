@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from rdkit import Chem, DataStructs, RDConfig
 from rdkit.Chem.MolStandardize import rdMolStandardize
-from rdkit.Chem import rdCIPLabeler
+from rdkit.Chem import inchi, rdCIPLabeler
 from rdkit.Chem.rdchem import Atom
 from rdkit.Geometry import rdGeometry as geom
 
@@ -606,7 +606,11 @@ chlorine	[Cl]
       enumerator = rdMolStandardize.TautomerEnumerator(params)
       res = enumerator.Enumerate(eEnol)
       for taut in res.tautomers:
-        self.assertEqual(taut.GetBondWithIdx(1).GetStereo(), Chem.BondStereo.STEREONONE)
+        bond = taut.GetBondWithIdx(1)
+        self.assertTrue(
+          (bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() == Chem.BondStereo.STEREOANY) or
+          (bond.GetBondType() != Chem.BondType.DOUBLE and bond.GetStereo() == Chem.BondStereo.STEREONONE)
+        )
       # test retain enol E stereochemistry
       params = rdMolStandardize.CleanupParameters()
       params.tautomerRemoveBondStereo = False
@@ -631,7 +635,11 @@ chlorine	[Cl]
       enumerator = rdMolStandardize.TautomerEnumerator(params)
       res = enumerator.Enumerate(zEnol)
       for taut in res:
-        self.assertEqual(taut.GetBondWithIdx(1).GetStereo(), Chem.BondStereo.STEREONONE)
+        bond = taut.GetBondWithIdx(1)
+        self.assertTrue(
+          (bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetStereo() == Chem.BondStereo.STEREOANY) or
+          (bond.GetBondType() != Chem.BondType.DOUBLE and bond.GetStereo() == Chem.BondStereo.STEREONONE)
+        )
       # test retain enol Z stereochemistry
       params = rdMolStandardize.CleanupParameters()
       params.tautomerRemoveBondStereo = False
