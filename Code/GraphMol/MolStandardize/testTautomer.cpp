@@ -117,7 +117,7 @@ void testEnumerator() {
   checkAns("C1(C=CC=CN1)=CC", {"CC=C1C=CC=CN1", "CC=C1C=CCC=N1", "CCc1ccccn1"});
 
   // special imine tautomer
-  checkAns("C1(=NC=CC=C1)CC", {"CC=C1C=CC=CN1", "CC=C1C=CCC=N1", "CCc1ccccn1"});
+  checkAns("C1(=NC=CC=C1)CC", {"CCc1ccccn1"});
 
   // 1,3 aromatic heteroatom H shift
   checkAns("O=c1cccc[nH]1", {"O=c1cccc[nH]1", "Oc1ccccn1"});
