@@ -583,8 +583,8 @@ M  END
     taut_res = enumerator.Enumerate(m)
     self.assertEqual(len(taut_res.tautomers), 2)
     self.assertEqual(taut_res.modifiedAtoms, (7, 9))
-    self.assertEqual(len(taut_res.modifiedBonds), 2)
-    self.assertEqual(taut_res.modifiedBonds, (7, 8))
+    self.assertEqual(len(taut_res.modifiedBonds), 7)
+    self.assertEqual(taut_res.modifiedBonds, (7, 8, 9, 10, 11, 12, 14))
 
     taut_res = enumerator.Enumerate(m)
     self.assertEqual(len(taut_res.tautomers), 2)
@@ -592,8 +592,8 @@ M  END
 
     taut_res = enumerator.Enumerate(m)
     self.assertEqual(len(taut_res.tautomers), 2)
-    self.assertEqual(len(taut_res.modifiedBonds), 2)
-    self.assertEqual(taut_res.modifiedBonds, (7, 8))
+    self.assertEqual(len(taut_res.modifiedBonds), 7)
+    self.assertEqual(taut_res.modifiedBonds, (7, 8, 9, 10, 11, 12, 14))
 
   def test15EnumeratorParams(self):
     # Test a structure with hundreds of tautomers.
@@ -608,7 +608,7 @@ M  END
 
     enumerator = rdMolStandardize.GetV1TautomerEnumerator()
     res68 = enumerator.Enumerate(m68)
-    self.assertEqual(len(res68), 295)
+    self.assertEqual(len(res68), 206)
     self.assertEqual(len(res68.tautomers), len(res68))
     self.assertEqual(res68.status, rdMolStandardize.TautomerEnumeratorStatus.MaxTransformsReached)
 

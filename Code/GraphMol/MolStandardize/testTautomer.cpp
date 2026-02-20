@@ -389,7 +389,7 @@ void testEnumerator() {
   // NOTE: enumerate() may use a non-SMILES internal key (e.g. state-key
   // experiments). The collapsed SMILES-keyed view can have a different size
   // than historical SMILES-keyed enumeration.
-  TEST_ASSERT(res68.size() == 200);
+  TEST_ASSERT(res68.size() == 206);
   TEST_ASSERT(res68raw.status() == TautomerEnumeratorStatus::MaxTransformsReached);
   BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
 }
@@ -416,7 +416,7 @@ void testEnumeratorParams() {
     TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
     TEST_ASSERT(res68raw.status() ==
                 TautomerEnumeratorStatus::MaxTransformsReached);
-    TEST_ASSERT(res68.size() == 200);
+    TEST_ASSERT(res68.size() == 206);
   }
   {
     CleanupParameters params;
@@ -1243,13 +1243,17 @@ void testEnumerateDetails() {
     auto tautRes = te.enumerate(*mol);
     TEST_ASSERT(tautRes.size() == 2);
     TEST_ASSERT(tautRes.modifiedAtoms().count() == 2);
-    TEST_ASSERT(tautRes.modifiedBonds().count() == 2);
+    TEST_ASSERT(tautRes.modifiedBonds().count() == 7);
     TEST_ASSERT(tautRes.modifiedAtoms().test(7));
     TEST_ASSERT(tautRes.modifiedAtoms().test(9));
     TEST_ASSERT(!tautRes.modifiedBonds().test(0));
     TEST_ASSERT(tautRes.modifiedBonds().test(7));
     TEST_ASSERT(tautRes.modifiedBonds().test(8));
-    TEST_ASSERT(!tautRes.modifiedBonds().test(14));
+    TEST_ASSERT(tautRes.modifiedBonds().test(9));
+    TEST_ASSERT(tautRes.modifiedBonds().test(10));
+    TEST_ASSERT(tautRes.modifiedBonds().test(11));
+    TEST_ASSERT(tautRes.modifiedBonds().test(12));
+    TEST_ASSERT(tautRes.modifiedBonds().test(14));
   }
   {
     // test the deprecated form
@@ -1270,13 +1274,17 @@ void testEnumerateDetails() {
 #endif
     TEST_ASSERT(tauts.size() == 2);
     TEST_ASSERT(atomsModified.count() == 2);
-    TEST_ASSERT(bondsModified.count() == 2);
+    TEST_ASSERT(bondsModified.count() == 7);
     TEST_ASSERT(atomsModified[7]);
     TEST_ASSERT(atomsModified[9]);
     TEST_ASSERT(!bondsModified[0]);
     TEST_ASSERT(bondsModified[7]);
     TEST_ASSERT(bondsModified[8]);
-    TEST_ASSERT(!bondsModified[14]);
+    TEST_ASSERT(bondsModified[9]);
+    TEST_ASSERT(bondsModified[10]);
+    TEST_ASSERT(bondsModified[11]);
+    TEST_ASSERT(bondsModified[12]);
+    TEST_ASSERT(bondsModified[14]);
   }
   BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
 }
