@@ -1401,7 +1401,6 @@ ROMol *TautomerEnumerator::denormalizeAtomBondOrder(
   // Here we add bonds in origMol order, so bond indices match and we can
   // (usually) do O(1) bond lookup by index.
   copyStereoGroupsByIndices(origMol, fixedMol, true);
-  auto *res = new ROMol(fixedMol);
 
   // Denormalization rebuilds the molecule (and changes bond insertion order).
   // Recompute stereochemistry/CIP on the rebuilt molecule.
@@ -1411,8 +1410,55 @@ ROMol *TautomerEnumerator::denormalizeAtomBondOrder(
   // - force=false: this is a freshly rebuilt molecule and
   //   this path is used from within tautomer canonicalization. We don't need
   //   to override any existing "stereo already perceived" marker here.
-  MolOps::assignStereochemistry(*res, true, false);
+  MolOps::assignStereochemistry(fixedMol, true, false);
 
+  // Bonds modified by tautomerism have no defined E/Z stereo and should never
+  // acquire one from the input molecule's 2D coordinates.  This mirrors the
+  // STEREOANY logic in setTautomerStereoAndIsoHs (which applies the same
+  // policy during enumeration), but here we apply it unconditionally after
+  // reassigning stereochemistry so the denormalized result is consistent.
+  // Marking non-ring modified double bonds STEREOANY causes the InChI bridge
+  // to collapse the end-atom coordinates for those bonds, preventing a
+  // spurious /b layer.  Ring bonds are excluded because InChI does not
+  // perceive E/Z stereo on them from coordinates anyway.
+  //
+  // We identify tautomeric bonds by comparing bond types between fixedMol and
+  // origMol rather than consulting TautomerEnumeratorResult::d_modifiedBonds.
+  // The reason: d_modifiedBonds stores *normalized* bond indices (bonds are
+  // re-inserted in sorted endpoint order by normalizeAtomBondOrder()), which
+  // do NOT align with the origMol / fixedMol bond indices used here.  The
+  // origMol bond-type comparison is index-safe because fixedMol is explicitly
+  // built by iterating origMol.bonds() in order, so their bond index spaces
+  // match by construction.
+  {
+    MolOps::fastFindRings(fixedMol);
+    const auto *ringInfo = fixedMol.getRingInfo();
+    // Cache origMol bond types by index for O(1) lookup.
+    const unsigned int numBonds = origMol.getNumBonds();
+    std::vector<Bond::BondType> origBondTypes(numBonds, Bond::UNSPECIFIED);
+    for (const auto *ob : origMol.bonds()) {
+      origBondTypes[ob->getIdx()] = ob->getBondType();
+    }
+    for (auto *fb : fixedMol.bonds()) {
+      if (fb->getBondType() != Bond::DOUBLE) {
+        continue;
+      }
+      const unsigned int bi = fb->getIdx();
+      // Bond was already double/aromatic in origMol: respect whatever stereo
+      // assignStereochemistry or the user placed on it.
+      if (bi < numBonds && (origBondTypes[bi] == Bond::DOUBLE ||
+                            origBondTypes[bi] == Bond::AROMATIC)) {
+        continue;
+      }
+      if (ringInfo && ringInfo->numBondRings(bi) != 0) {
+        continue;
+      }
+      fb->setStereo(Bond::STEREOANY);
+      fb->getStereoAtoms().clear();
+    }
+  }
+
+  auto *res = new ROMol(fixedMol);
   return res;
 }
 
