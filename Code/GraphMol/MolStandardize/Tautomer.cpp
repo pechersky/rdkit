@@ -428,7 +428,7 @@ const std::vector<SubstructTerm> &getDefaultTautomerScoreSubstructs() {
       {"P=O", "[#15]=,:[#8]", 2, {15, 8}, "[#15]~[#8]"},
       {"C=hetero", "[C]=[!#1;!#6]", 1, {6}, "[C]~[!#1;!#6]"},
       {"C(=hetero)-hetero", "[C](=[!#1;!#6])[!#1;!#6]", 2, {6}, "[C](~[!#1;!#6])~[!#1;!#6]"},
-      {"aromatic C = exocyclic N", "[c]=!@[N]", -1, {6, 7}, "[c]~[N]"},
+      {"aromatic C = exocyclic N", "[c]=!@[N]", -1, {6, 7}, "[#6]~[#7]"},
       {"methyl", "[CX4H3]", 1, {6}, ""},
       {"guanidine terminal=N", "[#7]C(=[NR0])[#7H0]", 1, {6, 7}, "[#7]~[#6]~[#7]"},
       {"guanidine endocyclic=N", "[#7;R][#6;R]([N])=[#7;R]", 2, {6, 7}, "[#7]~[#6]~[#7]"},
