@@ -816,6 +816,62 @@ bool TautomerEnumerator::setTautomerStereoAndIsoHs(
     // for CIP code assignment
     MolOps::assignStereochemistry(taut, cleanIt, force);
 
+    // assignStereochemistry() may clear CHI tags at atoms that are not
+    // involved in tautomerism (not in d_modifiedAtoms) if those atoms'
+    // stereo environment changes in a particular tautomer (e.g. an adjacent
+    // atom in the same ring switches from sp2→sp3 or vice versa).
+    //
+    // For atoms NOT in d_modifiedAtoms, the user-specified stereochemistry
+    // from the original input molecule (mol) should be preserved when the
+    // tautomer's geometry still supports it.  We verify this by tentatively
+    // restoring the CHI tag from the input and re-running assignStereochemistry;
+    // if the center gets a CIP code it remains chiral, otherwise we leave it
+    // cleared.
+    if (!d_removeSp3Stereo) {
+      bool anyRestored = false;
+      for (unsigned int idx = 0; idx < mol.getNumAtoms(); ++idx) {
+        if (res.d_modifiedAtoms.test(idx)) {
+          continue;  // atom was part of a tautomeric path, handled above
+        }
+        const auto *molAtom = mol.getAtomWithIdx(idx);
+        auto *tautAtom = taut.getAtomWithIdx(idx);
+        if (molAtom->getChiralTag() == Atom::CHI_UNSPECIFIED) {
+          continue;  // no stereo in input
+        }
+        if (tautAtom->getChiralTag() != Atom::CHI_UNSPECIFIED) {
+          continue;  // already has stereo (assignStereochemistry kept it)
+        }
+        if (tautAtom->getHybridization() != Atom::SP3) {
+          continue;  // not sp3, cannot be a tetrahedral stereocentre
+        }
+        // Tentatively restore the CHI from the input mol
+        tautAtom->setChiralTag(molAtom->getChiralTag());
+        anyRestored = true;
+      }
+      if (anyRestored) {
+        // Re-run assignStereochemistry to validate the restored CHI tags.
+        // For truly achiral centres (symmetric CIP environment), CIP assign-
+        // ment will not set _CIPCode, and we then clear the tag again.
+        MolOps::assignStereochemistry(taut, cleanIt, force);
+        for (unsigned int idx = 0; idx < mol.getNumAtoms(); ++idx) {
+          if (res.d_modifiedAtoms.test(idx)) {
+            continue;
+          }
+          auto *tautAtom = taut.getAtomWithIdx(idx);
+          if (tautAtom->getChiralTag() == Atom::CHI_UNSPECIFIED) {
+            continue;
+          }
+          // If assignStereochemistry did not assign a CIP code and did not
+          // mark this as a ring stereoatom, the atom is not truly chiral
+          // in this tautomer — clear the tag.
+          if (!tautAtom->hasProp(common_properties::_CIPCode) &&
+              !tautAtom->hasProp(common_properties::_ringStereoAtoms)) {
+            tautAtom->setChiralTag(Atom::CHI_UNSPECIFIED);
+          }
+        }
+      }
+    }
+
     // assignStereochemistry() can overwrite the explicit "undefined" bond
     // stereo (STEREOANY) that we set above in order to prevent downstream
     // coordinate-based E/Z inference. If bond stereo removal is enabled,
@@ -1130,10 +1186,12 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
             continue;
           }
 #ifdef VERBOSE_ENUMERATION
-          SmilesWriteParams smilesWriteParams;
-          smilesWriteParams.allBondsExplicit = true;
-          std::cout << "pre-setTautomerStereo: "
-                    << MolToSmiles(*product, smilesWriteParams) << std::endl;
+          {
+            SmilesWriteParams smilesWriteParams;
+            smilesWriteParams.allBondsExplicit = true;
+            std::cout << "pre-setTautomerStereo: "
+                      << MolToSmiles(*product, smilesWriteParams) << std::endl;
+          }
 #endif
           setTautomerStereoAndIsoHs(mol, *product, res);
 
