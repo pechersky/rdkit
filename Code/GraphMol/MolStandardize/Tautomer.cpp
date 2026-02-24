@@ -891,6 +891,22 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
   if (!taut->getRingInfo()->isSymmSssr()) {
     MolOps::symmetrizeSSSR(*taut);
   }
+  // Normalize aromaticity before any state-key computation.
+  // The pre-sanitize dedup keys use collapseAromaticBondOrder=true, which only
+  // collapses bond types to '4' when both endpoint atoms have getIsAromatic()
+  // true.  Without this call, Kekulé-form inputs (e.g. "N=C1NC(=O)CS1") would
+  // have non-aromatic ring atoms and their explicit single/double bond types
+  // would be encoded literally in intermediate state keys.  A change to
+  // Kekulization traversal order (gh-9125) then produces different intermediate
+  // keys for the same logical tautomer, causing the amino form to be falsely
+  // treated as already-seen and silently dropped.  Calling setAromaticity here
+  // ensures all inputs, regardless of how they were written, share the same
+  // aromaticity flags before the BFS starts.
+  {
+    RWMol rwTaut(*taut);
+    MolOps::setAromaticity(rwTaut);
+    taut.reset(new ROMol(rwTaut));
+  }
 
   // Compute a canonical atom/bond ordering for state key computation.
   // This makes the BFS traversal deterministic regardless of input atom
