@@ -16,7 +16,6 @@
 #include <boost/dynamic_bitset.hpp>
 #include <algorithm>
 #include <limits>
-#include <sstream>
 #include <unordered_set>
 
 #include <utility>
@@ -30,156 +29,6 @@
 namespace RDKit {
 
 namespace MolStandardize {
-
-namespace {
-// Generate a cheap tautomer state key for deduplication.
-// Since all tautomers share the same molecular graph, we only need to
-// encode what differs: H counts, formal charges, bond orders, and aromaticity.
-// This is O(n) vs O(n log n) for canonical SMILES.
-std::string getTautomerStateKey(const ROMol &mol) {
-  std::string key;
-  // Reserve approximate space: 3 chars per atom + 2 chars per bond
-  key.reserve(mol.getNumAtoms() * 3 + mol.getNumBonds() * 2);
-
-  // Encode atom state: H count, formal charge, and aromaticity
-  for (const auto atom : mol.atoms()) {
-    // Total H count (0-9 should cover most cases)
-    unsigned int totalH = atom->getTotalNumHs();
-    key += static_cast<char>('0' + std::min(totalH, 9u));
-    // Formal charge (-4 to +4 mapped to '0'-'8')
-    int charge = atom->getFormalCharge();
-    key += static_cast<char>('4' + std::max(-4, std::min(4, charge)));
-    key += atom->getIsAromatic() ? 'a' : 'A';
-  }
-
-  // Separator between atoms and bonds
-  key += '|';
-
-  for (const auto bond : mol.bonds()) {
-    // Bond type as single char
-    auto bt = bond->getBondType();
-    char c;
-    switch (bt) {
-      case Bond::SINGLE:
-        c = '1';
-        break;
-      case Bond::DOUBLE:
-        c = '2';
-        break;
-      case Bond::TRIPLE:
-        c = '3';
-        break;
-      case Bond::AROMATIC:
-        c = '4';
-        break;
-      default:
-        c = '0';
-        break;
-    }
-    key += c;
-    // Bond stereo (important for E/Z isomers)
-    auto st = bond->getStereo();
-    key += static_cast<char>('0' + static_cast<int>(st));
-  }
-
-  return key;
-}
-
-// Compute what the state key WOULD be after applying a tautomer transform,
-// without actually modifying the molecule. This allows us to check for
-// duplicates before making an expensive molecule copy.
-//
-// Returns the perturbed key. The baseKey should be from the source molecule
-// (kmol). The match, transform describe what would change.
-std::string getPerturbedStateKey(const std::string &baseKey, const ROMol &mol,
-                                 const MatchVectType &match,
-                                 const TautomerTransform &transform) {
-  // Key format: [H-charge-arom per atom] | [bondtype-stereo per bond]
-  // Each atom takes 3 chars, separator is 1 char, each bond takes 2 chars
-  const unsigned int numAtoms = mol.getNumAtoms();
-  const size_t atomSectionEnd = numAtoms * 3;  // position of '|'
-
-  std::string key = baseKey;
-
-  // Modify H counts for first and last atoms
-  int firstIdx = match.front().second;
-  int lastIdx = match.back().second;
-
-  // First atom: H count decreases by 1 (position = atomIdx * 3)
-  size_t firstHPos = static_cast<size_t>(firstIdx) * 3;
-  if (key[firstHPos] > '0') {
-    key[firstHPos] = static_cast<char>(key[firstHPos] - 1);
-  }
-
-  // Last atom: H count increases by 1
-  size_t lastHPos = static_cast<size_t>(lastIdx) * 3;
-  if (key[lastHPos] < '9') {
-    key[lastHPos] = static_cast<char>(key[lastHPos] + 1);
-  }
-
-  // Modify formal charges if specified
-  if (!transform.Charges.empty()) {
-    unsigned int ci = 0;
-    for (const auto &pair : match) {
-      int chargeAdj = transform.Charges[ci++];
-      if (chargeAdj != 0) {
-        size_t chargePos = static_cast<size_t>(pair.second) * 3 + 1;
-        int newCharge = (key[chargePos] - '4') + chargeAdj;
-        key[chargePos] =
-            static_cast<char>('4' + std::max(-4, std::min(4, newCharge)));
-      }
-    }
-  }
-
-  // Modify bond orders
-  for (size_t i = 0; i < transform.Mol->getNumBonds(); ++i) {
-    const auto tbond = transform.Mol->getBondWithIdx(i);
-    const Bond *bond = mol.getBondBetweenAtoms(
-        match[tbond->getBeginAtomIdx()].second,
-        match[tbond->getEndAtomIdx()].second);
-    if (!bond) {
-      continue;
-    }
-
-    // Bond position in key: after atom section + separator, 2 chars per bond
-    size_t bondPos = atomSectionEnd + 1 + bond->getIdx() * 2;
-
-    if (!transform.BondTypes.empty()) {
-      // Explicit bond type from transform
-      Bond::BondType newType = transform.BondTypes[i];
-      char c;
-      switch (newType) {
-        case Bond::SINGLE:
-          c = '1';
-          break;
-        case Bond::DOUBLE:
-          c = '2';
-          break;
-        case Bond::TRIPLE:
-          c = '3';
-          break;
-        case Bond::AROMATIC:
-          c = '4';
-          break;
-        default:
-          c = '0';
-          break;
-      }
-      key[bondPos] = c;
-    } else {
-      // Flip SINGLE <-> DOUBLE
-      if (key[bondPos] == '1') {
-        key[bondPos] = '2';
-      } else if (key[bondPos] == '2') {
-        key[bondPos] = '1';
-      }
-    }
-  }
-
-  return key;
-}
-
-}  // namespace
 
 namespace TautomerScoringFunctions {
 int scoreRings(const ROMol &mol) {
@@ -708,12 +557,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 
   TautomerEnumeratorResult res;
 
-  // Additional fast path: track state keys computed *before* the expensive
-  // sanitize steps (Kekulize/setAromaticity/...) so we can skip redundant
-  // candidates early.
-  std::unordered_set<std::string> preSanitizeStateKeys;
-  preSanitizeStateKeys.reserve(d_maxTautomers * 2);
-
   const std::vector<TautomerTransform> &transforms =
       tautparams->getTransforms();
 
@@ -752,11 +595,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
       ++numModifiedBonds;
     }
   };
-
-  // Track seen tautomer states with a cheap key for fast duplicate detection.
-  // This avoids computing expensive canonical SMILES for duplicates.
-  std::unordered_set<std::string> seenStateKeys;
-  seenStateKeys.insert(getTautomerStateKey(*taut));
 
   bool completed = false;
   bool bailOut = false;
@@ -814,10 +652,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 
         std::cout << "Matched: " << name << std::endl;
 #endif
-        // Compute the base state key from kmol once, before the match loop.
-        // This will be used to compute perturbed keys for each match.
-        std::string kmolKey = getTautomerStateKey(*kmol);
-
         // loop over transform matches
         for (const auto &match : matches) {
           if (nTransforms >= d_maxTransforms) {
@@ -832,19 +666,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
           }
           if (bailOut) {
             break;
-          }
-
-          // Compute what the state key WOULD be after applying this transform,
-          // WITHOUT copying the molecule. This allows us to skip duplicate
-          // tautomers before the expensive molecule copy.
-          std::string perturbedKey =
-              getPerturbedStateKey(kmolKey, *kmol, match, transform);
-          if (!preSanitizeStateKeys.insert(perturbedKey).second) {
-#ifdef VERBOSE_ENUMERATION
-            std::cout << "Previous tautomer state seen again (pre-copy check)"
-                      << std::endl;
-#endif
-            continue;
           }
 
           // This is a potentially new tautomer - now create the copy
@@ -946,24 +767,12 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 #endif
           setTautomerStereoAndIsoHs(mol, *product, res);
 
-          // Quick duplicate check using cheap state key before computing SMILES
-          std::string stateKey = getTautomerStateKey(*product);
-          if (seenStateKeys.find(stateKey) != seenStateKeys.end()) {
-#ifdef VERBOSE_ENUMERATION
-            std::cout << "Previous tautomer state seen again (cheap check)"
-                      << std::endl;
-#endif
-            continue;
-          }
-
-          // New tautomer state - compute canonical SMILES for storage
           tsmiles = MolToSmiles(*product, true);
 #ifdef VERBOSE_ENUMERATION
           (transform.Mol)->getProp(common_properties::_Name, name);
           std::cout << "Applied rule: " << name << " to "
                     << smilesTautomerPair.first << std::endl;
 #endif
-          // Double-check with SMILES (handles rare hash collisions)
           if (res.d_tautomers.find(tsmiles) != res.d_tautomers.end()) {
 #ifdef VERBOSE_ENUMERATION
             std::cout << "Previous tautomer produced again: " << tsmiles
@@ -971,7 +780,6 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 #endif
             continue;
           }
-          seenStateKeys.insert(stateKey);
           // in addition to the above transformations, sanitization may modify
           // bonds, e.g. Cc1nc2ccccc2[nH]1
           // Use parallel iteration to avoid O(n) getBondWithIdx lookups
