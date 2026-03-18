@@ -1,7 +1,7 @@
 # FROM alpine as rdkit-build
 # RUN apk add --no-cache sudo cmake gcc g++ make git \
 #     boost-dev freetype-dev postgresql-common postgresql postgresql-dev
-ARG PG_VERSION=16
+ARG PG_VERSION=17
 ARG PG_VERSION_MINOR=9
 ARG RDKIT="2024_09_6"
 
@@ -70,9 +70,9 @@ RUN rm -rf build && mkdir build && cd build && \
     -DRDK_TEST_MULTITHREADED=ON \
     -DRDK_BUILD_PGSQL=ON \
     -DRDK_PGSQL_STATIC=ON \
-    -DPostgreSQL_CONFIG_DIR=/usr/lib/postgresql/16/bin \
+    -DPostgreSQL_CONFIG_DIR=/usr/lib/postgresql/${PG_VERSION}/bin \
     -DPostgreSQL_INCLUDE_DIR="/usr/include/postgresql" \
-    -DPostgreSQL_TYPE_INCLUDE_DIR="/usr/include/postgresql/16/server" \
+    -DPostgreSQL_TYPE_INCLUDE_DIR="/usr/include/postgresql/${PG_VERSION}/server" \
     -DPostgreSQL_LIBRARY="/usr/lib/x86_64-linux-gnu/libpq.so"
 RUN cd build && make -j `nproc` install
 RUN echo "trusted = true" >> /rdkit/Code/PgSQL/rdkit/rdkit.control
@@ -83,10 +83,10 @@ ARG PG_VERSION
 ARG PG_VERSION_MINOR
 ARG RDKIT
 
-COPY --from=rdkit-build /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/16/extension/rdkit.control
-COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/rdkit--4.6.1.sql /usr/share/postgresql/16/extension/rdkit--4.6.1.sql
-COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/update_sql/*.sql /usr/share/postgresql/16/extension/
-COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/16/lib/rdkit.so
+COPY --from=rdkit-build /rdkit/Code/PgSQL/rdkit/rdkit.control /usr/share/postgresql/${PG_VERSION}/extension/rdkit.control
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/rdkit--4.6.1.sql /usr/share/postgresql/${PG_VERSION}/extension/rdkit--4.6.1.sql
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/update_sql/*.sql /usr/share/postgresql/${PG_VERSION}/extension/
+COPY --from=rdkit-build /rdkit/build/Code/PgSQL/rdkit/librdkit.so /usr/lib/postgresql/${PG_VERSION}/lib/rdkit.so
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libfreetype.so.6 /usr/include
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 /usr/include
 COPY --from=rdkit-build /usr/lib/x86_64-linux-gnu/libpng16.so.16 /usr/include
