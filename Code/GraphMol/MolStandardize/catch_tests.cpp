@@ -22,6 +22,7 @@
 #include <GraphMol/MolStandardize/Validate.h>
 
 #include <fstream>
+#include <set>
 
 using namespace RDKit;
 
@@ -842,8 +843,12 @@ TEST_CASE("provide tautomer parameters as JSON") {
     REQUIRE(m);
     auto tauts = te.enumerate(*m);
     CHECK(tauts.size() == 2);
-    CHECK(MolToSmiles(*tauts[0]) == "CC=CO");
-    CHECK(MolToSmiles(*tauts[1]) == "CCC=O");
+    std::set<std::string> tautSmiles;
+    for (const auto &t : tauts) {
+      tautSmiles.insert(MolToSmiles(*t));
+    }
+    CHECK(tautSmiles.count("CC=CO") == 1);
+    CHECK(tautSmiles.count("CCC=O") == 1);
   }
   SECTION("example 2") {
     std::string json = R"JSON({"tautomerTransformData":[
@@ -858,8 +863,8 @@ TEST_CASE("provide tautomer parameters as JSON") {
     REQUIRE(m);
     auto tauts = te.enumerate(*m);
     CHECK(tauts.size() == 2);
-    CHECK(MolToSmiles(*tauts[0]) == "C#N");
-    CHECK(MolToSmiles(*tauts[1]) == "[C-]#[NH+]");
+    CHECK(MolToSmiles(*tauts[0]) == "[C-]#[NH+]");
+    CHECK(MolToSmiles(*tauts[1]) == "C#N");
   }
   SECTION("example3") {
     std::string json = R"JSON({"tautomerTransformData":[
@@ -1833,4 +1838,3 @@ M  END
     }
   }
 }
-

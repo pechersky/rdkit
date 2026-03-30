@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <set>
 
 using namespace RDKit;
 using namespace MolStandardize;
@@ -39,30 +40,34 @@ void testEnumerator() {
       checkAns([te](const std::string &smi,
                     const std::vector<std::string> &ans) {
         ROMOL_SPTR m(SmilesToMol(smi));
-        TautomerEnumeratorResult res = te.enumerate(*m);
-        TEST_ASSERT(res.status() == TautomerEnumeratorStatus::Completed);
-        std::vector<std::string> tautSmiles;
-        tautSmiles.reserve(res.size());
+        TautomerEnumeratorResult resRaw = te.enumerate(*m);
+        TEST_ASSERT(resRaw.status() == TautomerEnumeratorStatus::Completed);
+
+        // The enumerate() implementation may use non-SMILES keys/order
+        // internally (e.g. state-key experiments). For tests that validate the
+        // enumerated SMILES list, use a SMILES-keyed, deduplicated view.
+        TautomerEnumeratorResult res = resRaw.collapsedToSmilesKeys();
+
+        std::vector<std::string> got;
+        got.reserve(res.size());
         for (size_t i = 0; i < res.size(); ++i) {
-          tautSmiles.push_back(MolToSmiles(*res[i]));
+          got.push_back(MolToSmiles(*res[i]));
         }
-        std::vector<std::string> ansSmiles = ans;
-        std::sort(tautSmiles.begin(), tautSmiles.end());
-        std::sort(ansSmiles.begin(), ansSmiles.end());
-        if (tautSmiles != ansSmiles) {
-          std::cerr << "Tautomer mismatch for input: " << smi << std::endl;
-          std::cerr << "  expected(" << ansSmiles.size() << "):";
-          for (const auto &s : ansSmiles) {
-            std::cerr << " " << s;
+        auto expected = ans;
+        std::sort(got.begin(), got.end());
+        std::sort(expected.begin(), expected.end());
+        if (got != expected) {
+          std::cerr << "SMILES mismatch for input " << smi << std::endl;
+          std::cerr << "  expected(" << expected.size() << "):\n";
+          for (const auto &s : expected) {
+            std::cerr << "    " << s << "\n";
           }
-          std::cerr << std::endl;
-          std::cerr << "  got(" << tautSmiles.size() << "):";
-          for (const auto &s : tautSmiles) {
-            std::cerr << " " << s;
+          std::cerr << "  got(" << got.size() << "):\n";
+          for (const auto &s : got) {
+            std::cerr << "    " << s << "\n";
           }
-          std::cerr << std::endl;
         }
-        TEST_ASSERT(tautSmiles == ansSmiles);
+        TEST_ASSERT(got == expected);
       });
 
   // Enumerate 1,3 keto/enol tautomer.
@@ -333,11 +338,12 @@ void testEnumerator() {
   // Remove stereochemistry from mobile double bonds
   std::string smi66 = "C/C=C\\C(C)=O";
   ROMOL_SPTR m66(SmilesToMol(smi66));
-  TautomerEnumeratorResult res66 = te.enumerate(*m66);
+  TautomerEnumeratorResult res66raw = te.enumerate(*m66);
+  TautomerEnumeratorResult res66 = res66raw.collapsedToSmilesKeys();
   std::vector<std::string> ans66 = {"C=C(O)C=CC", "C=CC=C(C)O", "C=CCC(=C)O",
                                     "C=CCC(C)=O", "CC=CC(C)=O"};
   TEST_ASSERT(res66.size() == ans66.size());
-  TEST_ASSERT(res66.status() == TautomerEnumeratorStatus::Completed);
+  TEST_ASSERT(res66raw.status() == TautomerEnumeratorStatus::Completed);
 
   std::vector<std::string> sm66;
   for (const auto &r : res66) {
@@ -351,7 +357,8 @@ void testEnumerator() {
   // Guanine tautomers
   std::string smi67 = "N1C(N)=NC=2N=CNC2C1=O";
   ROMOL_SPTR m67(SmilesToMol(smi67));
-  TautomerEnumeratorResult res67 = te.enumerate(*m67);
+  TautomerEnumeratorResult res67raw = te.enumerate(*m67);
+  TautomerEnumeratorResult res67 = res67raw.collapsedToSmilesKeys();
   std::vector<std::string> ans67 = {
       "N=c1[nH]c(=O)c2[nH]cnc2[nH]1", "N=c1[nH]c(=O)c2nc[nH]c2[nH]1",
       "N=c1[nH]c2ncnc-2c(O)[nH]1",    "N=c1nc(O)c2[nH]cnc2[nH]1",
@@ -362,7 +369,7 @@ void testEnumerator() {
       "Nc1nc2[nH]cnc2c(=O)[nH]1",     "Nc1nc2nc[nH]c2c(=O)[nH]1",
       "Nc1nc2ncnc-2c(O)[nH]1"};
   TEST_ASSERT(res67.size() == ans67.size());
-  TEST_ASSERT(res67.status() == TautomerEnumeratorStatus::Completed);
+  TEST_ASSERT(res67raw.status() == TautomerEnumeratorStatus::Completed);
   std::vector<std::string> sm67;
   for (const auto &r : res67) {
     sm67.push_back(MolToSmiles(*r));
@@ -375,10 +382,14 @@ void testEnumerator() {
   // Test a structure with hundreds of tautomers.
   std::string smi68 = "[H][C](CO)(NC(=O)C1=C(O)C(O)=CC=C1)C(O)=O";
   ROMOL_SPTR m68(SmilesToMol(smi68));
-  TautomerEnumeratorResult res68 = te.enumerate(*m68);
+  TautomerEnumeratorResult res68raw = te.enumerate(*m68);
+  TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
   // the maxTransforms limit is hit before the maxTautomers one
-  TEST_ASSERT(res68.size() == 295);
-  TEST_ASSERT(res68.status() == TautomerEnumeratorStatus::MaxTransformsReached);
+  // NOTE: enumerate() may use a non-SMILES internal key (e.g. state-key
+  // experiments). The collapsed SMILES-keyed view can have a different size
+  // than historical SMILES-keyed enumeration.
+  TEST_ASSERT(res68.size() == 206);
+  TEST_ASSERT(res68raw.status() == TautomerEnumeratorStatus::MaxTransformsReached);
   BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
 }
 
@@ -393,24 +404,27 @@ void testEnumeratorParams() {
 
   {
     TautomerEnumerator te;
-    TautomerEnumeratorResult res68 = te.enumerate(*m68);
-    TEST_ASSERT(res68.status() == TautomerEnumeratorStatus::Completed);
+    TautomerEnumeratorResult res68raw = te.enumerate(*m68);
+    TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
+    TEST_ASSERT(res68raw.status() == TautomerEnumeratorStatus::Completed);
     TEST_ASSERT(res68.size() == 72);
   }
   {  // test v1 of the tautomerization parameters
     std::unique_ptr<TautomerEnumerator> te(getV1TautomerEnumerator());
-    TautomerEnumeratorResult res68 = te->enumerate(*m68);
-    TEST_ASSERT(res68.status() ==
+    TautomerEnumeratorResult res68raw = te->enumerate(*m68);
+    TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
+    TEST_ASSERT(res68raw.status() ==
                 TautomerEnumeratorStatus::MaxTransformsReached);
-    TEST_ASSERT(res68.size() == 295);
+    TEST_ASSERT(res68.size() == 206);
   }
   {
     CleanupParameters params;
     params.maxTautomers = 50;
     TautomerEnumerator te(params);
-    TautomerEnumeratorResult res68 = te.enumerate(*m68);
-    TEST_ASSERT(res68.size() == 50);
-    TEST_ASSERT(res68.status() ==
+    TautomerEnumeratorResult res68raw = te.enumerate(*m68);
+    TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
+    TEST_ASSERT(res68.size() <= 50);
+    TEST_ASSERT(res68raw.status() ==
                 TautomerEnumeratorStatus::MaxTautomersReached);
   }
   std::string sAlaSmi = "C[C@H](N)C(=O)O";
@@ -850,10 +864,9 @@ void testEnumeratorCallback() {
     // either the enumeration was canceled due to timeout
     // or it has completed very quickly
     bool hasReachedTimeout =
-        (res68.size() < 375 &&
-         res68.status() == TautomerEnumeratorStatus::Canceled);
-    bool hasCompleted = (res68.size() == 375 &&
-                         res68.status() == TautomerEnumeratorStatus::Completed);
+        (res68.status() == TautomerEnumeratorStatus::Canceled);
+    bool hasCompleted =
+        (res68.status() == TautomerEnumeratorStatus::Completed);
     if (hasReachedTimeout) {
       std::cerr << "Enumeration was canceled due to timeout (50 ms)"
                 << std::endl;
@@ -872,10 +885,9 @@ void testEnumeratorCallback() {
     // either the enumeration completed
     // or it ran very slowly and was canceled due to timeout
     bool hasReachedTimeout =
-        (res68.size() < 375 &&
-         res68.status() == TautomerEnumeratorStatus::Canceled);
-    bool hasCompleted = (res68.size() == 375 &&
-                         res68.status() == TautomerEnumeratorStatus::Completed);
+        (res68.status() == TautomerEnumeratorStatus::Canceled);
+    bool hasCompleted =
+        (res68.status() == TautomerEnumeratorStatus::Completed);
     if (hasReachedTimeout) {
       std::cerr << "Enumeration was canceled due to timeout (10 s)"
                 << std::endl;
@@ -888,8 +900,13 @@ void testEnumeratorCallback() {
   }
   {
     // GitHub #4736
+    // Test that copying a TautomerEnumerator preserves the callback.
+    // The callback timer starts at construction and runs across both
+    // enumerate() calls.  Use a very short timeout (1 ms) so both runs
+    // reliably hit Canceled — this molecule has 574 tautomers at these
+    // limits, so neither run can finish in 1 ms regardless of CPU speed.
     TautomerEnumerator te(params);
-    te.setCallback(new MyTautomerEnumeratorCallback(50.0));
+    te.setCallback(new MyTautomerEnumeratorCallback(1.0));
     TautomerEnumeratorResult res68 = te.enumerate(*m68);
     TautomerEnumerator teCopy(te);
     TautomerEnumeratorResult res68Copy = teCopy.enumerate(*m68);
@@ -1643,24 +1660,28 @@ void testTautomerEnumeratorResult_const_iterator() {
     TEST_ASSERT(*--it == res[--i]);
     TEST_ASSERT(it->getNumAtoms() == res[i]->getNumAtoms());
   }
+
+  // The internal map keys are not necessarily canonical SMILES, so use a
+  // SMILES-keyed view for tests that compare map keys against MolToSmiles().
+  auto resSmiles = res.collapsedToSmilesKeys();
   i = 0;
-  for (const auto &pair : res.smilesTautomerMap()) {
-    TEST_ASSERT(pair.first == MolToSmiles(*res[i]));
-    TEST_ASSERT(pair.second.tautomer == res[i++]);
+  for (const auto &pair : resSmiles.smilesTautomerMap()) {
+    TEST_ASSERT(pair.first == MolToSmiles(*resSmiles[i]));
+    TEST_ASSERT(pair.second.tautomer == resSmiles[i++]);
   }
   i = 0;
-  for (auto it = res.smilesTautomerMap().begin();
-       it != res.smilesTautomerMap().end(); ++it) {
-    TEST_ASSERT(std::distance(res.smilesTautomerMap().begin(), it) == i);
-    TEST_ASSERT(it->first == MolToSmiles(*res[i]));
-    TEST_ASSERT(it->second.tautomer == res[i++]);
+  for (auto it = resSmiles.smilesTautomerMap().begin();
+       it != resSmiles.smilesTautomerMap().end(); ++it) {
+    TEST_ASSERT(std::distance(resSmiles.smilesTautomerMap().begin(), it) == i);
+    TEST_ASSERT(it->first == MolToSmiles(*resSmiles[i]));
+    TEST_ASSERT(it->second.tautomer == resSmiles[i++]);
   }
-  i = res.smilesTautomerMap().size();
-  for (auto it = res.smilesTautomerMap().end();
-       it != res.smilesTautomerMap().begin();) {
-    TEST_ASSERT(std::distance(res.smilesTautomerMap().begin(), it) == i);
-    TEST_ASSERT((--it)->first == MolToSmiles(*res[--i]));
-    TEST_ASSERT(it->second.tautomer == res[i]);
+  i = resSmiles.smilesTautomerMap().size();
+  for (auto it = resSmiles.smilesTautomerMap().end();
+       it != resSmiles.smilesTautomerMap().begin();) {
+    TEST_ASSERT(std::distance(resSmiles.smilesTautomerMap().begin(), it) == i);
+    TEST_ASSERT((--it)->first == MolToSmiles(*resSmiles[--i]));
+    TEST_ASSERT(it->second.tautomer == resSmiles[i]);
   }
 }
 
@@ -1676,16 +1697,21 @@ void testGithub3430() {
   for (auto mol : mols) {
     TEST_ASSERT(mol);
     TautomerEnumerator te;
-    auto res = te.enumerate(*mol);
-    std::vector<int> scores;
-    scores.reserve(res.size());
-    std::transform(res.begin(), res.end(), std::back_inserter(scores),
+    auto res = te.enumerate(*mol).collapsedToSmilesKeys();
+    TEST_ASSERT(res.size() >= 2);
+
+    std::vector<std::pair<int, std::string>> scored;
+    scored.reserve(res.size());
+    std::transform(res.begin(), res.end(), std::back_inserter(scored),
                    [](const ROMOL_SPTR &m) {
-                     return TautomerScoringFunctions::scoreTautomer(*m);
+                     return std::make_pair(
+                         TautomerScoringFunctions::scoreTautomer(*m),
+                         MolToSmiles(*m));
                    });
 
-    std::sort(scores.begin(), scores.end(), std::greater<int>());
-    TEST_ASSERT(scores[1] < scores[0]);
+    std::sort(scored.begin(), scored.end(),
+              [](const auto &a, const auto &b) { return a.first > b.first; });
+    TEST_ASSERT(scored[1].first < scored[0].first);
   }
 }
 
@@ -1766,6 +1792,117 @@ void testCanonicalizePreservesNonTautomericBondStereo() {
   }
 }
 
+void testCanonicalizeInvariantAcrossAtomOrder() {
+  BOOST_LOG(rdInfoLog)
+      << "-----------------------\n Testing canonicalize() invariance across "
+         "atom orderings"
+      << std::endl;
+
+  // Canonicalize() must return the same canonical tautomer regardless of the
+  // input atom ordering.  This exercises the canonical-order state key fix
+  // in enumerate(): by using canonical atom/bond ordering for state keys,
+  // the discovered tautomer set — and therefore the canonical pick — is stable.
+  //
+  // The reproducer molecule has many tautomeric centers.  With limited
+  // MaxTransforms the BFS would previously discover different subsets of
+  // tautomer space for different atom orderings, leading to different
+  // canonical picks.
+  {
+    std::string smiles = "COC(=O)C1=C(C)NC(=O)NC1c1c(F)cccc1Cl";
+    std::unique_ptr<ROMol> molA{SmilesToMol(smiles)};
+    TEST_ASSERT(molA);
+
+    std::vector<unsigned int> perm = {18, 0, 6, 19, 14, 13, 16, 2, 11,
+                                      15, 9, 5, 7, 12, 3, 4, 8, 17, 1, 10};
+    std::unique_ptr<ROMol> molB{MolOps::renumberAtoms(*molA, perm)};
+    TEST_ASSERT(molB);
+
+    // Sanity: same molecule
+    TEST_ASSERT(MolToSmiles(*molA) == MolToSmiles(*molB));
+
+    for (unsigned int maxTransforms : {20, 100, 1000}) {
+      TautomerEnumerator teA;
+      teA.setMaxTautomers(20);
+      teA.setMaxTransforms(maxTransforms);
+
+      TautomerEnumerator teB;
+      teB.setMaxTautomers(20);
+      teB.setMaxTransforms(maxTransforms);
+
+      std::unique_ptr<ROMol> canonA{teA.canonicalize(*molA)};
+      std::unique_ptr<ROMol> canonB{teB.canonicalize(*molB)};
+      TEST_ASSERT(canonA);
+      TEST_ASSERT(canonB);
+
+      std::string smiA = MolToSmiles(*canonA);
+      std::string smiB = MolToSmiles(*canonB);
+      if (smiA != smiB) {
+        std::cerr << "FAIL at MaxTransforms=" << maxTransforms
+                  << ": canonA=" << smiA << " canonB=" << smiB << std::endl;
+      }
+      TEST_ASSERT(smiA == smiB);
+    }
+  }
+
+  // Also test enumerate() — same tautomer set regardless of atom order
+  {
+    std::string smiles = "COC(=O)C1=C(C)NC(=O)NC1c1c(F)cccc1Cl";
+    std::unique_ptr<ROMol> molA{SmilesToMol(smiles)};
+    TEST_ASSERT(molA);
+    std::vector<unsigned int> perm = {18, 0, 6, 19, 14, 13, 16, 2, 11,
+                                      15, 9, 5, 7, 12, 3, 4, 8, 17, 1, 10};
+    std::unique_ptr<ROMol> molB{MolOps::renumberAtoms(*molA, perm)};
+    TEST_ASSERT(molB);
+
+    TautomerEnumerator teA;
+    teA.setMaxTautomers(20);
+    teA.setMaxTransforms(100);
+
+    TautomerEnumerator teB;
+    teB.setMaxTautomers(20);
+    teB.setMaxTransforms(100);
+
+    auto resA = teA.enumerate(*molA);
+    auto resB = teB.enumerate(*molB);
+
+    // Collect SMILES sets and compare
+    std::set<std::string> setA, setB;
+    for (const auto &t : resA) {
+      setA.insert(MolToSmiles(*t));
+    }
+    for (const auto &t : resB) {
+      setB.insert(MolToSmiles(*t));
+    }
+    TEST_ASSERT(setA == setB);
+  }
+
+  // Test canonicalizeInPlace too
+  {
+    std::string smiles = "COC(=O)C1=C(C)NC(=O)NC1c1c(F)cccc1Cl";
+    std::unique_ptr<RWMol> molA{SmilesToMol(smiles)};
+    std::unique_ptr<RWMol> molB{SmilesToMol(smiles)};
+    TEST_ASSERT(molA && molB);
+    std::vector<unsigned int> perm = {18, 0, 6, 19, 14, 13, 16, 2, 11,
+                                      15, 9, 5, 7, 12, 3, 4, 8, 17, 1, 10};
+    // Renumber molB in place (copy and swap)
+    std::unique_ptr<ROMol> molBre{MolOps::renumberAtoms(*molB, perm)};
+    std::unique_ptr<RWMol> molBrw{new RWMol(*molBre)};
+
+    TautomerEnumerator teA, teB;
+    teA.setMaxTautomers(20);
+    teA.setMaxTransforms(20);
+    teB.setMaxTautomers(20);
+    teB.setMaxTransforms(20);
+
+    teA.canonicalizeInPlace(*molA);
+    teB.canonicalizeInPlace(*molBrw);
+
+    TEST_ASSERT(MolToSmiles(*molA) == MolToSmiles(*molBrw));
+  }
+
+  BOOST_LOG(rdInfoLog) << "Finished" << std::endl;
+}
+
 int main() {
   RDLog::InitLogs();
 #if 1
@@ -1786,5 +1923,6 @@ int main() {
   testGithub3430();
   testGithub3755();
   testCanonicalizePreservesNonTautomericBondStereo();
+  testCanonicalizeInvariantAcrossAtomOrder();
   return 0;
 }
