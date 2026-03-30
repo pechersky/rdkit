@@ -706,6 +706,25 @@ chlorine	[Cl]
     for taut in res:
       self.assertTrue(taut.GetAtomWithIdx(12).HasProp("_isotopicHs"))
 
+  def test15CanonicalizeHandlesExplicitHs(self):
+    # Keep the graph explicit H so canonicalization exercises the explicit-H
+    # normalization path instead of folding it into an implicit H.
+    ps = Chem.SmilesParserParams()
+    ps.removeHs = False
+    m = Chem.MolFromSmiles("[H][C@@](NC(C)=O)(C(=O)OC)C", ps)
+    self.assertIsNotNone(m)
+    params = rdMolStandardize.CleanupParameters()
+    params.tautomerRemoveSp3Stereo = False
+    enumerator = rdMolStandardize.TautomerEnumerator(params)
+    ctaut = enumerator.Canonicalize(m)
+    Chem.SanitizeMol(ctaut)
+    ctaut_smi = Chem.MolToSmiles(ctaut, canonical=True)
+    self.assertIsNotNone(Chem.MolFromSmiles(ctaut_smi))
+    self.assertEqual(
+      ctaut_smi,
+      Chem.MolToSmiles(enumerator.PickCanonical(enumerator.Enumerate(m)),
+                       canonical=True))
+
   def test16EnumeratorCallback(self):
 
     class MyTautomerEnumeratorCallback(rdMolStandardize.TautomerEnumeratorCallback):

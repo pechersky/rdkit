@@ -57,6 +57,29 @@ unsigned int countAtomStereo(const ROMol &mol) {
   return count;
 }
 
+// When an input molecule carries explicit H atoms in the graph, tautomer
+// transforms can leave redundant atom-state H counts behind on the same atom.
+// Normalize those counts before sanitization so graph Hs are not double-counted.
+void normalizeGraphExplicitHs(RWMol &mol) {
+  for (auto atom : mol.atoms()) {
+    const auto explicitHs = atom->getNumExplicitHs();
+    if (!explicitHs) {
+      continue;
+    }
+    unsigned int graphHs = 0;
+    for (const auto nbr : mol.atomNeighbors(atom)) {
+      if (nbr->getAtomicNum() == 1) {
+        ++graphHs;
+      }
+    }
+    if (!graphHs) {
+      continue;
+    }
+    atom->setNumExplicitHs(explicitHs > graphHs ? explicitHs - graphHs : 0);
+    atom->setNoImplicit(atom->getNumExplicitHs() != 0);
+  }
+}
+
 // Canonical ordering for state key computation.
 // By iterating atoms and bonds in canonical rank order, the state key
 // becomes independent of the input atom numbering, making BFS traversal
@@ -976,6 +999,7 @@ TautomerEnumeratorResult TautomerEnumerator::enumerate(const ROMol &mol) const {
 #endif
 
           try {
+            normalizeGraphExplicitHs(*product);
             // We only change bond orders/H counts/charges; the molecular graph
             // (and therefore ring topology) is unchanged.
             // `sanitizeMol()` always calls `clearComputedProps()` which resets
