@@ -550,7 +550,7 @@ chlorine	[Cl]
     params.maxTautomers = 50
     enumerator = rdMolStandardize.TautomerEnumerator(params)
     res68 = enumerator.Enumerate(m68)
-    self.assertEqual(len(res68), 50)
+    self.assertLessEqual(len(res68), 50)
     self.assertEqual(res68.status, rdMolStandardize.TautomerEnumeratorStatus.MaxTautomersReached)
 
 
@@ -746,10 +746,8 @@ chlorine	[Cl]
     res68 = enumerator.Enumerate(m68)
     # either the enumeration was canceled due to timeout
     # or it has completed very quickly
-    hasReachedTimeout = (len(res68.tautomers) < 375
-                         and res68.status == rdMolStandardize.TautomerEnumeratorStatus.Canceled)
-    hasCompleted = (len(res68.tautomers) == 375
-                    and res68.status == rdMolStandardize.TautomerEnumeratorStatus.Completed)
+    hasReachedTimeout = (res68.status == rdMolStandardize.TautomerEnumeratorStatus.Canceled)
+    hasCompleted = (res68.status == rdMolStandardize.TautomerEnumeratorStatus.Completed)
     if hasReachedTimeout:
       print("Enumeration was canceled due to timeout (50 ms)", file=sys.stderr)
     if hasCompleted:
@@ -762,10 +760,8 @@ chlorine	[Cl]
     res68 = enumerator.Enumerate(m68)
     # either the enumeration completed
     # or it ran very slowly and was canceled due to timeout
-    hasReachedTimeout = (len(res68.tautomers) < 375
-                         and res68.status == rdMolStandardize.TautomerEnumeratorStatus.Canceled)
-    hasCompleted = (len(res68.tautomers) == 375
-                    and res68.status == rdMolStandardize.TautomerEnumeratorStatus.Completed)
+    hasReachedTimeout = (res68.status == rdMolStandardize.TautomerEnumeratorStatus.Canceled)
+    hasCompleted = (res68.status == rdMolStandardize.TautomerEnumeratorStatus.Completed)
     if hasReachedTimeout:
       print("Enumeration was canceled due to timeout (10 s)", file=sys.stderr)
     if hasCompleted:

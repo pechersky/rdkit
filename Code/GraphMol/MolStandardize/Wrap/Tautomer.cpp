@@ -265,7 +265,8 @@ ROMol *pickCanonicalHelper2(const MolStandardize::TautomerEnumerator &self,
 
 PyTautomerEnumeratorResult *enumerateHelper(
     const MolStandardize::TautomerEnumerator &self, const ROMol &mol) {
-  return new PyTautomerEnumeratorResult(self.enumerate(mol));
+  auto res = self.enumerate(mol);
+  return new PyTautomerEnumeratorResult(res.collapsedToSmilesKeys());
 }
 
 std::vector<MolStandardize::TautomerScoringFunctions::SubstructTerm>
