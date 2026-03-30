@@ -44,7 +44,7 @@ void testEnumerator() {
         TEST_ASSERT(resRaw.status() == TautomerEnumeratorStatus::Completed);
 
         // The enumerate() implementation may use non-SMILES keys/order
-        // internally (e.g. state-key experiments). For tests that validate the
+        // internally (e.g. a state key). For tests that validate the
         // enumerated SMILES list, use a SMILES-keyed, deduplicated view.
         TautomerEnumeratorResult res = resRaw.collapsedToSmilesKeys();
 
@@ -385,8 +385,8 @@ void testEnumerator() {
   TautomerEnumeratorResult res68raw = te.enumerate(*m68);
   TautomerEnumeratorResult res68 = res68raw.collapsedToSmilesKeys();
   // the maxTransforms limit is hit before the maxTautomers one
-  // NOTE: enumerate() may use a non-SMILES internal key (e.g. state-key
-  // experiments). The collapsed SMILES-keyed view can have a different size
+  // NOTE: enumerate() may use a non-SMILES internal key (e.g. a state key).
+  // The collapsed SMILES-keyed view can have a different size
   // than historical SMILES-keyed enumeration.
   TEST_ASSERT(res68.size() == 206);
   TEST_ASSERT(res68raw.status() == TautomerEnumeratorStatus::MaxTransformsReached);
