@@ -1838,3 +1838,87 @@ M  END
     }
   }
 }
+
+TEST_CASE("STEREOANY preserved after tautomer canonicalization",
+          "[tautomers]") {
+  auto markNonRingNDoubleBondsStereoAny = [](RWMol &mol) {
+    for (auto bond : mol.bonds()) {
+      if (bond->getBondType() == Bond::DOUBLE &&
+          !mol.getRingInfo()->numBondRings(bond->getIdx()) &&
+          (bond->getBeginAtom()->getAtomicNum() == 7 ||
+           bond->getEndAtom()->getAtomicNum() == 7)) {
+        bond->setStereo(Bond::STEREOANY);
+      }
+    }
+  };
+
+  auto mol = "c1ccc(N=NC(=NNc2ccccc2)c2ccccc2)cc1"_smiles;
+  REQUIRE(mol);
+  markNonRingNDoubleBondsStereoAny(*mol);
+
+  unsigned int inputStereoAny = 0;
+  for (const auto bond : mol->bonds()) {
+    if (bond->getStereo() == Bond::STEREOANY) {
+      ++inputStereoAny;
+    }
+  }
+  REQUIRE(inputStereoAny == 2);
+
+  MolStandardize::CleanupParameters params;
+  params.tautomerRemoveBondStereo = false;
+  params.tautomerRemoveSp3Stereo = false;
+  MolStandardize::TautomerEnumerator te(params);
+
+  SECTION("canonicalize preserves STEREOANY") {
+    std::unique_ptr<ROMol> canon{te.canonicalize(*mol)};
+    REQUIRE(canon);
+    unsigned int stereoAnyCount = 0;
+    for (const auto bond : canon->bonds()) {
+      if (bond->getStereo() == Bond::STEREOANY) {
+        ++stereoAnyCount;
+      }
+    }
+    CHECK(stereoAnyCount == 2);
+  }
+
+  SECTION("enumerate preserves STEREOANY") {
+    auto tautomers = te.enumerate(*mol);
+    REQUIRE(!tautomers.empty());
+    for (const auto &taut : tautomers) {
+      unsigned int stereoAnyCount = 0;
+      for (const auto bond : taut->bonds()) {
+        if (bond->getBondType() == Bond::DOUBLE &&
+            bond->getStereo() == Bond::STEREOANY) {
+          ++stereoAnyCount;
+        }
+      }
+      if (stereoAnyCount > 0) {
+        CHECK(stereoAnyCount == 2);
+      }
+    }
+  }
+
+  SECTION("canonicalize preserves STEREOANY on C=N imine") {
+    auto imineMol = "CCN=c1cc2oc3cc(NCC)c(C)cc3c(-c3ccccc3C(=O)O)c-2cc1C"_smiles;
+    REQUIRE(imineMol);
+    markNonRingNDoubleBondsStereoAny(*imineMol);
+
+    unsigned int imineInputStereoAny = 0;
+    for (const auto bond : imineMol->bonds()) {
+      if (bond->getStereo() == Bond::STEREOANY) {
+        ++imineInputStereoAny;
+      }
+    }
+    REQUIRE(imineInputStereoAny == 1);
+
+    std::unique_ptr<ROMol> canon{te.canonicalize(*imineMol)};
+    REQUIRE(canon);
+    unsigned int stereoAnyCount = 0;
+    for (const auto bond : canon->bonds()) {
+      if (bond->getStereo() == Bond::STEREOANY) {
+        ++stereoAnyCount;
+      }
+    }
+    CHECK(stereoAnyCount == 1);
+  }
+}

@@ -698,6 +698,8 @@ bool TautomerEnumerator::setTautomerStereoAndIsoHs(
   if (d_reassignStereo) {
     static const bool cleanIt = true;
     static const bool force = true;
+    // cleanIt and force = true are load-bearing for the CIP/stereo behavior
+    // captured in the tautomer regression tests.
     MolOps::assignStereochemistry(taut, cleanIt, force);
 
     // assignStereochemistry() can overwrite the explicit "undefined" bond
@@ -1107,9 +1109,19 @@ TautomerEnumeratorResult TautomerEnumeratorResult::collapsedToSmilesKeys()
       continue;
     }
     std::string smi = MolToSmiles(*kv.second.tautomer, true);
-    // Deduplicate by SMILES: keep the first occurrence.
-    if (out.d_tautomers.find(smi) == out.d_tautomers.end()) {
+    auto it = out.d_tautomers.find(smi);
+    if (it == out.d_tautomers.end()) {
       out.d_tautomers.emplace(std::move(smi), kv.second);
+    } else {
+      unsigned int existingStereo =
+          countBondStereo(*it->second.tautomer) +
+          countAtomStereo(*it->second.tautomer);
+      unsigned int newStereo =
+          countBondStereo(*kv.second.tautomer) +
+          countAtomStereo(*kv.second.tautomer);
+      if (newStereo > existingStereo) {
+        it->second = kv.second;
+      }
     }
   }
   out.fillTautomersItVec();
@@ -1148,6 +1160,14 @@ ROMol *TautomerEnumerator::pickCanonical(
           bestSmiles = std::move(curSmiles);
           bestSmilesInitialized = true;
           bestMol = t.second.tautomer;
+        } else if (curSmiles == bestSmiles) {
+          unsigned int curStereo = countBondStereo(*t.second.tautomer) +
+                                   countAtomStereo(*t.second.tautomer);
+          unsigned int bestStereo = countBondStereo(*bestMol) +
+                                    countAtomStereo(*bestMol);
+          if (curStereo > bestStereo) {
+            bestMol = t.second.tautomer;
+          }
         }
       }
     }
@@ -1156,7 +1176,6 @@ ROMol *TautomerEnumerator::pickCanonical(
   static const bool cleanIt = true;
   static const bool force = true;
   MolOps::assignStereochemistry(*res, cleanIt, force);
-
   return res;
 }
 
@@ -1178,7 +1197,7 @@ ROMol *TautomerEnumerator::canonicalize(
   if (!scoreFunc) {
     scoreFunc = TautomerScoringFunctions::makeOptimizedScorer(mol);
   }
-  ROMol *canonical = pickCanonical(res, scoreFunc);
+  ROMol *canonical = thisCopy.pickCanonical(res, scoreFunc);
   // quickCopy during enumeration doesn't copy molecule properties or
   // conformers.  Restore both from the original molecule so that
   // downstream code (e.g. InChI generation) that relies on 2D/3D
@@ -1206,7 +1225,7 @@ void TautomerEnumerator::canonicalizeInPlace(
   if (!scoreFunc) {
     scoreFunc = TautomerScoringFunctions::makeOptimizedScorer(mol);
   }
-  std::unique_ptr<ROMol> tmp{pickCanonical(res, scoreFunc)};
+  std::unique_ptr<ROMol> tmp{thisCopy.pickCanonical(res, scoreFunc)};
 
   TEST_ASSERT(tmp->getNumAtoms() == mol.getNumAtoms());
   TEST_ASSERT(tmp->getNumBonds() == mol.getNumBonds());
