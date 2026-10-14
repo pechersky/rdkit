@@ -1,0 +1,39 @@
+name: postgres-bump
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # Schedules only run on the default branch; the images live on postgres-cartridge-image.
+  bump:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: postgres-cartridge-image
+      - id: pins
+        run: .github/scripts/postgres-bump.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # An App token, unlike GITHUB_TOKEN, lets the new pull request trigger CI.
+      - if: steps.pins.outputs.id
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.POSTGRES_IMAGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.POSTGRES_IMAGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - if: steps.pins.outputs.id
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app.outputs.token }}
+          branch: bump/postgres-${{ steps.pins.outputs.id }}
+          title: ${{ steps.pins.outputs.title }}
+          commit-message: ${{ steps.pins.outputs.title }}
