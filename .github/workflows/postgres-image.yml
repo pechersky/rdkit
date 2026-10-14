@@ -1,0 +1,129 @@
+name: postgres-image
+
+on:
+  pull_request:
+    paths: [docker/postgres/**, .github/workflows/postgres-image.yml]
+  push:
+    branches: [postgres-cartridge-image]
+    paths: [docker/postgres/**, .github/workflows/postgres-image.yml]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: postgres-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # From the Dockerfile, so postgres-bump can add a major without editing workflows.
+  majors:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      pg: ${{ steps.pg.outputs.pg }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: pg
+        run: echo "pg=$(grep -oP '^ARG POSTGRES_\K\d+' docker/postgres/Dockerfile | jq -sc)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: majors
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ${{ fromJSON(needs.majors.outputs.pg) }}
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Dockerfile pins -> env; this major's POSTGRES_<pg> and AURORA_RDKIT_<pg> as
+      # POSTGRES and AURORA_RDKIT.
+      - run: grep -oP '^ARG \K\w+=\S+@\S+' docker/postgres/Dockerfile | sed "s/_$PG=/=/" >> "$GITHUB_ENV"
+        env:
+          PG: ${{ matrix.pg }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The Dockerfile's ccache mount, carried between runs so a bump doesn't compile cold.
+      - id: ccache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ccache
+          key: ccache-${{ matrix.pg }}-${{ matrix.runner }}-${{ hashFiles('docker/postgres/Dockerfile') }}
+          restore-keys: ccache-${{ matrix.pg }}-${{ matrix.runner }}-
+      - uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          cache-map: '{"ccache": "/root/.cache/ccache"}'
+          skip-extraction: ${{ steps.ccache.outputs.cache-hit }}
+          utility-image: postgres:${{ env.POSTGRES }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker/postgres
+          build-args: POSTGRES=${{ env.POSTGRES }}
+          outputs: type=docker,dest=${{ runner.temp }}/images/latest.tar
+          provenance: false
+          tags: rdkit-postgres:latest
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker/postgres
+          build-args: |
+            POSTGRES=${{ env.POSTGRES }}
+            PATCH_COSTS=
+          outputs: type=docker,dest=${{ runner.temp }}/images/unpatched.tar
+          provenance: false
+          tags: rdkit-postgres:unpatched
+      - if: env.AURORA_RDKIT
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker/postgres
+          build-args: |
+            POSTGRES=${{ env.POSTGRES }}
+            RDKIT=${{ env.AURORA_RDKIT }}
+          outputs: type=docker,dest=${{ runner.temp }}/images/aurora.tar
+          provenance: false
+          tags: rdkit-postgres:aurora
+      - run: |
+          for i in latest unpatched ${AURORA_RDKIT:+aurora}; do
+            docker load -q -i "$RUNNER_TEMP/images/$i.tar"
+            docker/postgres/test.sh "rdkit-postgres:$i"
+          done
+          # A database created on what Aurora runs must upgrade in place. Not tested for
+          # -unpatched: upstream's update script fails there, which is why costs.sql exists.
+          [ -z "$AURORA_RDKIT" ] || docker/postgres/test.sh rdkit-postgres:latest rdkit-postgres:aurora
+      # publish pushes these exact tars, so what ships is what was tested.
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: images-${{ matrix.pg }}-${{ matrix.runner }}
+          path: ${{ runner.temp }}/images
+          retention-days: 7
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: [majors, build]
+    strategy:
+      matrix:
+        pg: ${{ fromJSON(needs.majors.outputs.pg) }}
+    runs-on: ubuntu-24.04
+    # Approval-gated, and the only job that can write packages.
+    environment: postgres-publish
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: images-${{ matrix.pg }}-*
+          path: images
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: .github/scripts/postgres-publish.sh "$PG"
+        env:
+          PG: ${{ matrix.pg }}
